@@ -1,1 +1,671 @@
-hello
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>binb — ELF &amp; PE Emulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>binb</h1>
+            <p class="subtitle" data-i18n="subtitle">ELF (Linux) &amp; PE (Windows) binary emulator in the browser</p>
+        </div>
+        <select id="theme-select" class="theme-select" title="Theme" aria-label="Theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+        </select>
+        <select id="lang-select" class="lang-select" title="Language" aria-label="Language">
+            <option value="en">English</option>
+            <option value="fr">Français</option>
+            <option value="br">Brezhoneg</option>
+            <option value="zh">中文</option>
+        </select>
+        <button class="btn btn-help" id="btn-help" data-i18n-title="helpTitle">?</button>
+    </header>
+
+    <!-- Help Modal -->
+    <div class="help-modal-backdrop" id="help-modal" style="display:none">
+        <div class="help-modal">
+            <div class="help-modal-header">
+                <h2 data-i18n="helpTitle">Help &amp; Guide</h2>
+                <button class="btn btn-xs help-modal-close" id="btn-help-close">&times;</button>
+            </div>
+            <div class="help-modal-body">
+                <section class="help-section">
+                    <h3>Getting Started</h3>
+                    <p>Upload a binary (ELF for Linux, or PE for Windows EXE/DLL) using the <strong>Upload binary</strong> button or drag-and-drop onto the page. For <strong>dynamic</strong> binaries (linked against glibc), use <strong>Sysroot (ZIP)</strong> to upload a ZIP of your sysroot (e.g. <code>lib64/ld-linux-x86-64.so.2</code>, <code>lib/x86_64-linux-gnu/libc.so.6</code>); it is decompressed and used as the VFS when you load the ELF; for PE you can upload a ZIP with DLLs (e.g. <code>Windows/System32/ntdll.dll</code>). The <strong>Binary</strong> tab shows ELF or PE structure (headers, sections, exports). You can also run <strong>shellcode</strong>: click <strong>Load shellcode</strong> to paste hex or C-style bytes and choose architecture (x86_64 or arm64), or upload a non-ELF file and choose “Load as shellcode”. Then use the controls to step through or run.</p>
+                </section>
+
+                <section class="help-section">
+                    <h3>Color Legend</h3>
+                    <div class="help-colors">
+                        <div class="help-color-row">
+                            <span class="help-swatch" style="background: var(--yellow-dark)"></span>
+                            <span><strong>Dark yellow</strong> &mdash; Memory <em>read</em> (QIRA-style)</span>
+                        </div>
+                        <div class="help-color-row">
+                            <span class="help-swatch" style="background: var(--yellow-bright)"></span>
+                            <span><strong>Bright yellow</strong> &mdash; Memory <em>write</em> (QIRA-style)</span>
+                        </div>
+                        <div class="help-color-row">
+                            <span class="help-swatch" style="background: var(--accent)"></span>
+                            <span><strong>Blue</strong> &mdash; Current instruction / forward flow trail</span>
+                        </div>
+                        <div class="help-color-row">
+                            <span class="help-swatch" style="background: var(--red)"></span>
+                            <span><strong>Red</strong> &mdash; Backward flow trail / exec breakpoint hits</span>
+                        </div>
+                        <div class="help-color-row">
+                            <span class="help-swatch" style="background: var(--green)"></span>
+                            <span><strong>Green</strong> &mdash; Active breakpoint addresses</span>
+                        </div>
+                        <div class="help-color-row">
+                            <span class="help-swatch" style="background: var(--purple)"></span>
+                            <span><strong>Purple</strong> &mdash; Timeless mode active indicator</span>
+                        </div>
+                        <div class="help-color-row">
+                            <span class="help-swatch" style="background: #06b6d4"></span>
+                            <span><strong>Cyan</strong> &mdash; Syscall instructions in timeline (RIP lane) and disassembly</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="help-section">
+                    <h3>Timeline Lanes (Timeless Mode)</h3>
+                    <table class="help-table">
+                        <tr><td><strong>RIP</strong></td><td>Color-coded instruction address map</td></tr>
+                        <tr><td><strong>MEM</strong></td><td>All memory reads (dark yellow) and writes (bright yellow) per instruction</td></tr>
+                        <tr><td><strong>DADDR</strong></td><td>Accesses to the tracked data address (visible when a Memory breakpoint is set)</td></tr>
+                        <tr><td><strong>EXEC</strong></td><td>Execution breakpoint hits (click RIP in registers to set)</td></tr>
+                        <tr><td><strong>FLOW</strong></td><td>Blue (forward) and red (backward) trails from cursor</td></tr>
+                    </table>
+                </section>
+
+                <section class="help-section">
+                    <h3>Memory Breakpoints (Tenet-style)</h3>
+                    <p class="help-lead">Track a memory address to see every read/write on the timeline and jump between accesses.</p>
+                    <ol class="help-steps">
+                        <li><strong>Set:</strong> In the <strong>Memory</strong> tab, <strong>click a byte</strong> in the hex dump (or in the Memory Accesses preview). That address becomes the “tracked” address (daddr). In trace mode the view jumps to the last access.</li>
+                        <li><strong>Timeline:</strong> The <strong>DADDR</strong> lane shows every read/write to that address (yellow = read, blue = write).</li>
+                        <li><strong>Navigate:</strong> Press <kbd>J</kbd> / <kbd>K</kbd> to jump to the <strong>next</strong> / <strong>previous</strong> access in the trace.</li>
+                        <li><strong>Clear:</strong> Click the daddr value in the <strong>info bar</strong> (e.g. <code>0x1234 (1B)</code>) to clear the memory breakpoint.</li>
+                    </ol>
+                    <p class="help-note">Alternative: enter an address in the Memory field and click <strong>Watch</strong> to track that address (4 bytes). The <strong>Watch</strong> panel (right) lets you save multiple addresses and click one to set it as the active breakpoint.</p>
+                </section>
+
+                <section class="help-section">
+                    <h3>Keyboard Shortcuts</h3>
+                    <table class="help-table">
+                        <tr><td><kbd>F5</kbd></td><td>Continue execution</td></tr>
+                        <tr><td><kbd>F10</kbd></td><td>Step over</td></tr>
+                        <tr><td><kbd>F11</kbd></td><td>Step into (single step)</td></tr>
+                        <tr><td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td><td>Step backward / forward in trace</td></tr>
+                        <tr><td><kbd>Shift+&larr;/&rarr;</kbd></td><td>Step 10 backward / forward</td></tr>
+                        <tr><td><kbd>Escape</kbd></td><td>Return to live execution</td></tr>
+                        <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td>Next / prev execution of same instruction (iaddr)</td></tr>
+                        <tr><td><kbd>J</kbd> / <kbd>K</kbd></td><td>Next / prev access to tracked data address (daddr)</td></tr>
+                        <tr><td><kbd>scroll</kbd></td><td>Zoom in/out on timeline</td></tr>
+                        <tr><td><kbd>drag</kbd></td><td>Select region on timeline to zoom</td></tr>
+                        <tr><td><kbd>dbl-click</kbd></td><td>Reset timeline zoom</td></tr>
+                    </table>
+                </section>
+
+                <section class="help-section">
+                    <h3>Supported Architectures</h3>
+                    <table class="help-table">
+                        <tr><td><strong>x86-64</strong></td><td>Full instruction set including SSE, atomic ops, bit manipulation</td></tr>
+                        <tr><td><strong>x86 (i386)</strong></td><td>32-bit mode with vDSO, set_thread_area, GS segment support</td></tr>
+                        <tr><td><strong>ARM64 (AArch64)</strong></td><td>Data processing, branches, loads/stores, system instructions, multiply/divide</td></tr>
+                        <tr><td><strong>Windows PE (x86 / x86-64)</strong></td><td>EXE and DLL loading; NT syscall emulation (partial)</td></tr>
+                    </table>
+                </section>
+
+                <section class="help-section">
+                    <h3>Tips</h3>
+                    <ul class="help-tips">
+                        <li>Enable <strong>Timeless</strong> before running to record the trace. Disable it for maximum speed.</li>
+                        <li>Use <strong>strace</strong> to see syscalls as they happen.</li>
+                        <li>Click any address in the Memory Accesses panel to see the surrounding memory.</li>
+                        <li><strong>Memory breakpoint:</strong> click a byte in the Memory view (or in the Accesses preview) to track that address — timeline shows reads/writes; <kbd>J</kbd>/<kbd>K</kbd> to seek. Click the daddr in the info bar to clear.</li>
+                        <li><strong>Memory “Watch” button:</strong> tracks the address currently in the Memory address field as the active data address (daddr, 4 bytes). The timeline then shows reads/writes to that address and <kbd>J</kbd>/<kbd>K</kbd> jump between accesses. To save addresses in a list, use the <strong>Watch</strong> panel (right) and add from there.</li>
+                        <li>Click the <strong>RIP</strong> value in the Registers panel to mark it as an execution breakpoint on the timeline.</li>
+                        <li>Drag on the timeline to zoom into a region. Scroll to zoom, double-click to reset.</li>
+                        <li>The <strong>Watch</strong> panel keeps a list of data addresses and shows hit counts over the trace; click one to set it as the active daddr. Use <kbd>J</kbd>/<kbd>K</kbd> to jump between accesses.</li>
+                    </ul>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <main>
+        <!-- Controls Bar -->
+        <section class="controls">
+            <div class="upload-area">
+                <button class="btn btn-demo" id="btn-demo" data-i18n="btnDemo" data-i18n-title="btnDemoTitle">Demo</button>
+                <input type="file" id="elf-upload" accept=".elf,.out,.bin,.hex,.exe,.dll,application/octet-stream" hidden>
+                <button class="btn btn-primary" id="btn-upload" data-i18n="btnUpload" data-i18n-title="btnUploadTitle">Upload binary</button>
+                <input type="file" id="sysroot-zip-upload" accept=".zip,application/zip" hidden>
+                <button class="btn btn-secondary" id="btn-sysroot-zip" data-i18n="btnSysrootZip" data-i18n-title="btnSysrootZipTitle">Sysroot (ZIP)</button>
+                <button class="btn btn-shellcode-toggle" id="btn-shellcode-toggle" data-i18n="btnShellcode" data-i18n-title="btnShellcodeTitle">Load shellcode</button>
+                <span class="file-name" id="file-name" title="Click for details" data-i18n="fileNoFile">No file loaded</span>
+                <span class="file-info-badge" id="file-info-badge" style="display:none"></span>
+                <input type="text" id="program-args" class="program-args-input" data-i18n-placeholder="programArgsPlaceholder">
+                <span class="sysroot-name" id="sysroot-name" style="display:none" title="ZIP used as VFS for next run"><span data-i18n="sysrootLabel">Sysroot:</span> <span id="sysroot-file-label"></span> <button type="button" class="btn btn-xs sysroot-clear" id="btn-sysroot-clear" data-i18n-title="sysrootClear">×</button></span>
+            </div>
+            <div class="shellcode-panel" id="shellcode-panel" style="display:none">
+                <div class="shellcode-row">
+                    <label>Paste hex or C-style:</label>
+                    <textarea id="shellcode-paste" class="shellcode-textarea" data-i18n-placeholder="shellcodePastePlaceholder"></textarea>
+                </div>
+                <div class="shellcode-row shellcode-actions">
+                    <select id="shellcode-arch" class="shellcode-arch" data-i18n-title="shellcodeArchTitle">
+                        <option value="x86_64">x86_64</option>
+                        <option value="arm64">arm64</option>
+                    </select>
+                    <button class="btn btn-primary btn-sm" id="btn-load-paste" data-i18n="loadPasted">Load pasted</button>
+                    <span class="shellcode-hint" data-i18n="shellcodeHint">Or upload a .bin/.hex file above and choose “Load as shellcode” if it’s not ELF.</span>
+                </div>
+            </div>
+            <div class="shellcode-file-prompt" id="shellcode-file-prompt" style="display:none">
+                <span class="shellcode-file-msg" data-i18n="shellcodeFileMsg">File is not ELF. Load as shellcode:</span>
+                <select id="shellcode-file-arch" class="shellcode-arch" data-i18n-title="shellcodeArchTitle">
+                    <option value="x86_64">x86_64</option>
+                    <option value="arm64">arm64</option>
+                </select>
+                <button class="btn btn-primary btn-sm" id="btn-load-file-shellcode" data-i18n="loadShellcode">Load shellcode</button>
+                <button class="btn btn-sm" id="btn-dismiss-shellcode-prompt" data-i18n="dismiss">Dismiss</button>
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-accent" id="btn-continue" disabled data-i18n="continue" data-i18n-title="continueTitle">Continue</button>
+                <button class="btn" id="btn-step" disabled data-i18n="step" data-i18n-title="stepTitle">Step</button>
+                <button class="btn" id="btn-step-over" disabled data-i18n="stepOver" data-i18n-title="stepOverTitle">Step Over</button>
+                <div class="step-n-group">
+                    <button class="btn" id="btn-step-100" disabled data-i18n-title="stepNTitle">x100</button>
+                    <select class="step-n-select" id="step-n-select" data-i18n-title="stepNTitle">
+                        <option value="10">x10</option>
+                        <option value="50">x50</option>
+                        <option value="100" selected>x100</option>
+                        <option value="500">x500</option>
+                        <option value="1000">x1K</option>
+                        <option value="5000">x5K</option>
+                        <option value="10000">x10K</option>
+                        <option value="50000">x50K</option>
+                        <option value="100000">x100K</option>
+                    </select>
+                </div>
+                <button class="btn btn-accent-run" id="btn-run" disabled data-i18n="run" data-i18n-title="runTitle">Run</button>
+                <button class="btn btn-danger" id="btn-stop" disabled data-i18n="stop" data-i18n-title="stopTitle">Stop</button>
+                <button class="btn" id="btn-reset" disabled data-i18n="reset" data-i18n-title="resetTitle">Reset</button>
+                <span class="toolbar-sep"></span>
+                <button class="btn btn-snapshot" id="btn-save-snapshot" disabled data-i18n="saveSnapshot" data-i18n-title="saveSnapshotTitle">&#11015; Save</button>
+                <button class="btn btn-snapshot" id="btn-load-snapshot" data-i18n="loadSnapshot" data-i18n-title="loadSnapshotTitle">&#11014; Load</button>
+                <input type="file" id="snapshot-upload" accept=".bsnp,.bin" style="display:none">
+                <select class="log-level-select" id="log-level" data-i18n-title="logLevelTitle">
+                    <option value="off" data-i18n="logOff">Log: Off</option>
+                    <option value="error" data-i18n="logError">Log: Error</option>
+                    <option value="warn" data-i18n="logWarn">Log: Warn</option>
+                    <option value="info" selected data-i18n="logInfo">Log: Info</option>
+                    <option value="debug" data-i18n="logDebug">Log: Debug</option>
+                    <option value="trace" data-i18n="logTrace">Log: Trace</option>
+                </select>
+                <label class="strace-toggle" data-i18n-title="straceTitle">
+                    <input type="checkbox" id="strace-toggle" checked>
+                    <span data-i18n="strace">strace</span>
+                </label>
+                <label class="strace-toggle timeless-toggle" data-i18n-title="timelessTitle">
+                    <input type="checkbox" id="trace-toggle" checked>
+                    <span class="timeless-label" data-i18n="timeless">Timeless</span>
+                </label>
+            </div>
+        </section>
+
+        <!-- Main layout: 3-column debugger (resize by dragging the dividers) -->
+        <div class="debugger-layout" id="debugger-layout">
+
+            <!-- Left: Disassembly -->
+            <section class="panel disasm-panel" id="panel-disasm">
+                <div class="panel-header">
+                    <h2 data-i18n="disasm">Disassembly</h2>
+                    <span class="disasm-fn-label" id="disasm-fn-label"></span>
+                    <span class="badge" id="status-badge">idle</span>
+                </div>
+                <div class="disasm-search-bar">
+                    <input type="text" id="disasm-search" class="disasm-search-input" data-i18n-placeholder="disasmSearchPlaceholder">
+                    <select id="disasm-search-mode" class="disasm-search-mode" data-i18n-title="searchModeTitle">
+                        <option value="auto" data-i18n="searchAuto">Auto</option>
+                        <option value="string" data-i18n="searchString">String</option>
+                        <option value="hex" data-i18n="searchHex">Hex addr</option>
+                        <option value="regex" data-i18n="searchRegex">Regex</option>
+                    </select>
+                    <button class="btn btn-sm" id="btn-disasm-search-prev" data-i18n-title="searchPrevTitle">&#9664;</button>
+                    <button class="btn btn-sm" id="btn-disasm-search-next" data-i18n-title="searchNextTitle">&#9654;</button>
+                    <span class="disasm-search-status" id="disasm-search-status"></span>
+                </div>
+                <div class="disasm-listing" id="disasm-listing" tabindex="-1" title="Disassembly — j/k next/prev same instruction, J/K next/prev daddr access">
+                    <div class="muted center-text" data-i18n="disasmUploadPrompt">Upload a binary to begin</div>
+                </div>
+            </section>
+            <div class="layout-resizer" id="resizer-disasm" data-i18n-title="resizerDisasmTitle"></div>
+
+            <!-- Center: Terminal + Strace + Memory -->
+            <section class="panel center-panel">
+                <div class="center-tabs">
+                    <button class="tab-btn active" data-tab="terminal-tab" data-i18n="tabTerminal">Terminal</button>
+                    <button class="tab-btn" data-tab="strace-tab" data-i18n="tabStrace">Syscall Trace</button>
+                    <button class="tab-btn" data-tab="memory-tab" data-i18n="tabMemory">Memory</button>
+                    <button class="tab-btn" data-tab="memmap-tab" data-i18n="tabMemmap">Memory Map</button>
+                    <button class="tab-btn" data-tab="accesses-tab" data-i18n="tabAccesses">Accesses</button>
+                    <button class="tab-btn" data-tab="functions-tab" data-i18n="tabFunctions">Functions</button>
+                    <button class="tab-btn" data-tab="elf-tab" data-i18n="tabBinary">Binary</button>
+                    <button class="tab-btn" data-tab="strings-tab" data-i18n="tabStrings">Strings</button>
+                    <button class="tab-btn" data-tab="yara-tab">YARA</button>
+                    <button class="tab-btn" data-tab="asm-tab">Assembly</button>
+                </div>
+                <div class="tab-content active" id="terminal-tab">
+                    <div class="tab-scroll-wrap" id="terminal-output-wrap">
+                        <pre class="terminal" id="terminal-output"><span class="muted" data-i18n="terminalPrompt">Upload a binary to begin emulation...</span></pre>
+                    </div>
+                    <div class="stdin-prompt" id="stdin-prompt" style="display:none">
+                        <label><span data-i18n="stdinPromptLabel">Program is waiting for input (up to</span> <span id="stdin-prompt-count">?</span> <span data-i18n="stdinPromptBytes">bytes):</span></label>
+                        <input type="text" id="stdin-input" class="stdin-input" data-i18n-placeholder="stdinPlaceholder">
+                        <button class="btn btn-sm" id="btn-stdin-send" type="button" data-i18n="send">Send</button>
+                    </div>
+                </div>
+                <div class="tab-content" id="strace-tab">
+                    <div class="strace-search-bar">
+                        <input type="text" id="strace-search" class="strace-search-input" data-i18n-placeholder="straceSearchPlaceholder">
+                        <select id="strace-search-mode" class="strace-search-mode" data-i18n-title="searchModeTitle">
+                            <option value="auto" data-i18n="searchAuto">Auto</option>
+                            <option value="string" data-i18n="searchString">String</option>
+                            <option value="regex" data-i18n="searchRegex">Regex</option>
+                        </select>
+                        <button class="btn btn-sm" id="btn-strace-search-prev" data-i18n-title="searchPrevTitle">&#9664;</button>
+                        <button class="btn btn-sm" id="btn-strace-search-next" data-i18n-title="searchNextTitle">&#9654;</button>
+                        <span class="strace-search-status" id="strace-search-status"></span>
+                    </div>
+                    <div class="tab-scroll-wrap" id="strace-output-wrap">
+                        <div class="strace-list" id="strace-output"><span class="muted" data-i18n="straceEnablePrompt">Enable strace to see syscall trace output.</span></div>
+                    </div>
+                </div>
+                <div class="tab-content" id="memory-tab">
+                    <div class="memory-controls">
+                        <input type="text" id="mem-addr" class="mem-addr-input" data-i18n-placeholder="memAddrPlaceholder" value="0x400000">
+                        <button class="btn btn-sm" id="btn-mem-go" data-i18n="go">Go</button>
+                        <button class="btn btn-sm" id="btn-mem-stack" data-i18n="stack" data-i18n-title="stackTitle">Stack</button>
+                        <button class="btn btn-sm" id="btn-mem-rip" data-i18n="rip" data-i18n-title="ripTitle">RIP</button>
+                        <button class="btn btn-sm" id="btn-mem-pgup" data-i18n-title="pageUp">&#8593;</button>
+                        <button class="btn btn-sm" id="btn-mem-pgdn" data-i18n-title="pageDown">&#8595;</button>
+                        <button class="btn btn-sm btn-watch" id="btn-mem-watch" data-i18n="watch" data-i18n-title="watchTitle">Watch</button>
+                        <label class="strace-toggle" data-i18n-title="memAutoTitle">
+                            <input type="checkbox" id="mem-auto-refresh" checked>
+                            <span data-i18n="memAuto">auto</span>
+                        </label>
+                        <span class="mem-info" id="mem-info"></span>
+                        <span class="mem-legend"><span class="mem-legend-read" data-i18n="memLegendR">R</span> <span class="mem-legend-write" data-i18n="memLegendW">W</span></span>
+                        <span class="mem-entropy-legend" data-i18n-title="memEntropyTitle">
+                            <span class="mem-entropy-legend-label">H:</span>
+                            <span class="mem-entropy-legend-bar" id="mem-entropy-legend-bar"></span>
+                        </span>
+                        <span class="mem-edit-hint muted" data-i18n="memClickToEdit" data-i18n-title="memClickToEditTitle">Click byte to edit</span>
+                    </div>
+                    <div class="memory-search-bar">
+                        <input type="text" id="mem-search" class="mem-search-input" data-i18n-placeholder="memSearchPlaceholder">
+                        <select id="mem-search-mode" class="mem-search-mode" data-i18n-title="searchModeTitle">
+                            <option value="auto" data-i18n="searchAuto">Auto</option>
+                            <option value="string" data-i18n="searchString">String</option>
+                            <option value="hex" data-i18n="searchHex">Hex</option>
+                            <option value="regex" data-i18n="searchRegex">Regex</option>
+                        </select>
+                        <button class="btn btn-sm" id="btn-mem-search-all" data-i18n="search" data-i18n-title="memSearchAllTitle">Search</button>
+                        <button class="btn btn-sm" id="btn-mem-search-prev" data-i18n-title="searchPrevTitle">&#9664;</button>
+                        <button class="btn btn-sm" id="btn-mem-search-next" data-i18n-title="searchNextTitle">&#9654;</button>
+                        <span class="mem-search-spinner" id="mem-search-spinner" data-i18n-title="memSearching" aria-hidden="true"></span>
+                        <span class="mem-search-status" id="mem-search-status"></span>
+                    </div>
+                    <pre class="terminal memory-dump" id="memory-dump"><span class="muted" data-i18n="memEnterAddress">Enter an address and click Go.</span></pre>
+                </div>
+                <div class="tab-content" id="memmap-tab">
+                    <div class="memory-map-list" id="memmap-list">
+                        <div class="muted" data-i18n="memmapNoBinary">No binary loaded</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="functions-tab">
+                    <div class="fn-toolbar">
+                        <input type="text" id="fn-search" class="fn-search-input" data-i18n-placeholder="fnSearchPlaceholder">
+                        <span class="fn-count" id="fn-count"></span>
+                    </div>
+                    <div class="fn-list" id="fn-list">
+                        <div class="muted" data-i18n="fnNoBinary">No binary loaded</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="elf-tab">
+                    <div class="elf-controls">
+                        <span class="elf-title" data-i18n="elfTitle">ELF structure</span>
+                    </div>
+                    <pre class="terminal elf-structure" id="elf-structure"><span class="muted" data-i18n="binaryLoadPrompt">Load an ELF or PE (Windows) binary to view its structure (headers, sections, exports).</span></pre>
+                </div>
+                <div class="tab-content" id="strings-tab">
+                    <div class="elf-controls strings-controls">
+                        <span class="elf-title" data-i18n="stringsTitle">Strings</span>
+                        <input type="text" id="strings-search" class="fn-search-input strings-search-input" data-i18n-placeholder="stringsSearchPlaceholder" placeholder="Search strings...">
+                        <span class="fn-count strings-count" id="strings-count"></span>
+                    </div>
+                    <div class="tab-scroll-wrap" id="strings-output-wrap">
+                        <div class="elf-section strings-section" id="strings-structure"><span class="muted" data-i18n="stringsLoadPrompt">Load an ELF or PE binary to view extracted strings.</span></div>
+                    </div>
+                </div>
+                <div class="tab-content" id="accesses-tab">
+                    <div class="accesses-controls">
+                        <span class="accesses-title" data-i18n="accessesTitle">Memory Accesses</span>
+                        <span class="accesses-info" id="accesses-info" data-i18n="accessesStepPrompt">Step or seek trace to see accesses</span>
+                    </div>
+                    <div class="accesses-split">
+                        <div class="accesses-list" id="accesses-list">
+                            <div class="muted" data-i18n="accessesNoAccesses">No memory accesses to display. Enable Timeless and step through instructions.</div>
+                        </div>
+                        <div class="accesses-mem-preview" id="accesses-mem-preview">
+                            <div class="accesses-mem-header">
+                                <span class="accesses-mem-title" data-i18n="accessesMemContext">Memory Context</span>
+                                <span class="accesses-mem-addr mono" id="accesses-mem-addr"></span>
+                            </div>
+                            <pre class="terminal accesses-mem-dump" id="accesses-mem-dump"><span class="muted" data-i18n="accessesClickPreview">Click an access to preview memory</span></pre>
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-content" id="yara-tab">
+                    <div class="yara-controls">
+                        <button class="btn btn-sm btn-primary" id="btn-yara-run-all">Run all rules</button>
+                        <button class="btn btn-sm" id="btn-yara-scan">Scan Memory</button>
+                        <button class="btn btn-sm" id="btn-yara-clear">Clear</button>
+                        <label class="btn btn-sm btn-file-label" title="Load .yar file">
+                            Load File
+                            <input type="file" id="yara-file-input" accept=".yar,.yara,.txt" style="display:none">
+                        </label>
+                        <select id="yara-example-select" class="yara-example-select">
+                            <option value="">-- Example Rules --</option>
+                            <option value="hello_world">Hello World strings</option>
+                            <option value="elf_header">ELF header</option>
+                            <option value="pe_indicators">PE / DLL indicators</option>
+                            <option value="nop_sled">NOP sled</option>
+                            <option value="stack_pivot">Stack pivot gadgets</option>
+                            <option value="syscall_int80">Linux syscall (int 0x80 / syscall)</option>
+                            <option value="all_examples">Load all examples</option>
+                        </select>
+                        <label class="yara-pe-on-load" title="When a PE/EXE/DLL is loaded, run YARA with PE indicators and show results">
+                            <input type="checkbox" id="pe-yara-on-load">
+                            <span>Scan with YARA on PE load</span>
+                        </label>
+                        <span class="yara-status" id="yara-status"></span>
+                    </div>
+                    <div class="yara-split">
+                        <div class="yara-editor-wrap">
+                            <pre class="yara-highlight-layer" id="yara-highlight-layer" aria-hidden="true"></pre>
+                            <textarea id="yara-editor" class="yara-editor" spellcheck="false" placeholder="rule example {
+    strings:
+        $hello = &quot;Hello&quot;
+        $world = &quot;World&quot;
+    condition:
+        any of them
+}"></textarea>
+                        </div>
+                        <div class="yara-results-wrap">
+                            <div class="yara-results-header">
+                                <span>Results</span>
+                                <span id="yara-match-count" class="yara-match-count"></span>
+                                <span id="yara-summary" class="yara-summary"></span>
+                            </div>
+                            <div class="yara-results" id="yara-results">
+                                <span class="muted">Write YARA rules and click &quot;Run all rules&quot; to scan memory and see all results.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-content" id="asm-tab">
+                    <div class="asm-controls">
+                        <button class="btn btn-sm btn-primary" id="btn-asm-assemble">Assemble</button>
+                        <button class="btn btn-sm" id="btn-asm-run">Run as shellcode</button>
+                        <button class="btn btn-sm" id="btn-asm-clear">Clear</button>
+                        <select id="asm-example-select" class="asm-example-select">
+                            <option value="">-- Examples --</option>
+                            <option value="exit_linux">Linux exit(0) — syscall</option>
+                            <option value="nop_sled">NOP sled + ret</option>
+                            <option value="add_numbers">Add two numbers</option>
+                            <option value="hello_syscall">Linux exit(42)</option>
+                        </select>
+                        <span class="asm-status" id="asm-status"></span>
+                    </div>
+                    <div class="asm-split">
+                        <div class="asm-editor-wrap">
+                            <pre class="asm-highlight-layer" id="asm-highlight-layer" aria-hidden="true"></pre>
+                            <textarea id="asm-editor" class="asm-editor" spellcheck="false" placeholder="; x86-64 Intel syntax (educational subset)
+; Example:
+;   mov rax, 60
+;   xor edi, edi
+;   syscall"></textarea>
+                        </div>
+                        <div class="asm-output-wrap">
+                            <div class="asm-output-header">Listing</div>
+                            <pre class="asm-listing" id="asm-listing"><span class="muted">Assemble to see address, bytes, and source.</span></pre>
+                            <div class="asm-hex-header">Hex bytes</div>
+                            <pre class="asm-hex-output" id="asm-hex-output"><span class="muted">—</span></pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <div class="layout-resizer" id="resizer-right" title="Drag to resize right panel"></div>
+
+            <!-- Right: Registers + Breakpoints + Watch -->
+            <section class="panel right-panel" id="panel-right">
+                <div class="right-tabs">
+                    <button class="tab-btn active" data-tab="regs-tab" data-i18n="tabRegs">Registers</button>
+                    <button class="tab-btn" data-tab="stack-tab" data-i18n="tabStack">Stack</button>
+                    <button class="tab-btn" data-tab="bp-tab" data-i18n="tabBp">Breakpoints</button>
+                    <button class="tab-btn" data-tab="watch-tab" data-i18n="tabWatch">Watch</button>
+                    <button class="tab-btn" data-tab="history-tab" data-i18n="tabHistory">History</button>
+                    <button class="tab-btn" data-tab="xrefs-tab" data-i18n="tabXrefs">XREFs</button>
+                    <button class="tab-btn" data-tab="vfs-tab" data-i18n="tabVfs">VFS</button>
+                </div>
+                <div class="tab-content active" id="regs-tab">
+                    <div class="registers" id="register-display">
+                        <div class="muted" data-i18n="memmapNoBinary">No binary loaded</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="stack-tab">
+                    <div class="callstack-list" id="callstack-list">
+                        <div class="muted" data-i18n="noCallStack">No call stack data. Step through code to see the call stack.</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="bp-tab">
+                    <div class="bp-section">
+                        <span class="bp-section-title" data-i18n="bpInstructionTitle">Instruction (address)</span>
+                        <div class="bp-controls">
+                            <input type="text" id="bp-addr" class="bp-addr-input" data-i18n-placeholder="bpAddrPlaceholder">
+                            <button class="btn btn-sm" id="btn-bp-add" data-i18n="add">Add</button>
+                        </div>
+                    </div>
+                    <div class="bp-section">
+                        <span class="bp-section-title" data-i18n="bpSyscallTitle">Syscall</span>
+                        <div class="bp-controls bp-syscall-row">
+                            <label class="bp-any-syscall-label" data-i18n-title="breakOnAnySyscallTitle">
+                                <input type="checkbox" id="bp-any-syscall" class="bp-any-syscall-cb"> <span data-i18n="breakOnAnySyscall">Break on any syscall</span>
+                            </label>
+                        </div>
+                        <div class="bp-controls">
+                            <input type="text" id="bp-syscall" class="bp-addr-input" data-i18n-placeholder="bpSyscallPlaceholder" list="bp-syscall-names">
+                            <datalist id="bp-syscall-names">
+                                <option value="read (0)">
+                                <option value="write (1)">
+                                <option value="writev (20)">
+                                <option value="readv (19)">
+                                <option value="open (2)">
+                                <option value="openat (257)">
+                                <option value="close (3)">
+                                <option value="lseek (8)">
+                                <option value="brk (12)">
+                                <option value="mmap (9)">
+                                <option value="mprotect (10)">
+                                <option value="munmap (11)">
+                                <option value="getdents64 (78)">
+                                <option value="getcwd (79)">
+                                <option value="fcntl (72)">
+                                <option value="ioctl (16)">
+                                <option value="uname (63)">
+                                <option value="gettimeofday (96)">
+                                <option value="clock_gettime (228)">
+                                <option value="getrandom (318)">
+                                <option value="eventfd (284)">
+                                <option value="pipe2 (293)">
+                                <option value="exit (60)">
+                                <option value="exit_group (231)">
+                            </datalist>
+                            <button class="btn btn-sm" id="btn-bp-syscall-add" data-i18n="add">Add</button>
+                        </div>
+                    </div>
+                    <div class="bp-list" id="bp-list">
+                        <div class="muted" data-i18n="bpNoBreakpoints">No breakpoints set</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="watch-tab">
+                    <div class="bp-controls">
+                        <input type="text" id="watch-addr" class="bp-addr-input" data-i18n-placeholder="watchAddrPlaceholder">
+                        <input type="text" id="watch-size" class="watch-size-input" data-i18n-placeholder="watchSizePlaceholder" value="4">
+                        <button class="btn btn-sm" id="btn-watch-add" data-i18n="track">Track</button>
+                    </div>
+                    <div class="watch-list" id="watch-list">
+                        <div class="muted" data-i18n="watchHelp">Track data addresses to see all reads/writes across execution. Use j/k to navigate invocations, J/K for data accesses.</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="history-tab">
+                    <div class="history-header-row">
+                        <span class="history-header muted" data-i18n="historyHeader">Value history for the tracked address (daddr). Click a row to seek.</span>
+                        <button type="button" class="btn btn-xs" id="btn-history-copy-csv" data-i18n-title="copyCsvTitle" data-i18n="copyCsv" style="display:none">Copy CSV</button>
+                    </div>
+                    <div class="region-history-wrap" id="region-history-wrap">
+                        <div class="muted" id="region-history-placeholder" data-i18n="regionHistoryPlaceholder">Set a memory breakpoint (click a byte in Memory) and record a trace to see value history.</div>
+                        <table class="history-table" id="region-history-table" style="display:none">
+                            <thead><tr><th>#</th><th>RIP</th><th>R/W</th><th>Addr</th><th>Size</th><th>Value</th></tr></thead>
+                            <tbody id="region-history-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="tab-content" id="xrefs-tab">
+                    <div class="xrefs-toolbar">
+                        <span class="xrefs-summary" id="xrefs-summary" data-i18n="xrefsRunPrompt">Run the program to collect cross-references.</span>
+                        <button class="btn btn-xs" id="btn-xrefs-refresh" data-i18n="xrefsRefresh" data-i18n-title="xrefsRefreshTitle">Refresh</button>
+                    </div>
+                    <div class="xrefs-detail" id="xrefs-detail">
+                        <div class="muted" id="xrefs-placeholder" data-i18n="xrefsClickPrompt">Click an address in the disassembly to see its cross-references here.</div>
+                    </div>
+                    <div class="xrefs-list" id="xrefs-list">
+                    </div>
+                </div>
+                <div class="tab-content" id="vfs-tab">
+                    <div class="vfs-header muted" data-i18n="vfsHeader">Virtual filesystem: libraries and files visible to the emulated program.</div>
+                    <div class="vfs-add-section">
+                        <input type="text" id="vfs-path-input" class="vfs-path-input" data-i18n-placeholder="vfsPathPlaceholder">
+                        <div class="vfs-drop-zone" id="vfs-drop-zone" data-i18n-title="vfsDropTitle">
+                            <span class="vfs-drop-text" data-i18n="vfsDropText">Drop file or click to add</span>
+                            <input type="file" id="vfs-file-input" class="vfs-file-input" multiple>
+                        </div>
+                    </div>
+                    <div class="vfs-list-and-detail">
+                        <div class="vfs-list-wrap">
+                            <div class="vfs-list-toolbar">
+                                <span class="vfs-filter-label" data-i18n="vfsFilterLabel">Filter:</span>
+                                <select id="vfs-filter" class="vfs-filter-select" data-i18n-title="vfsFilterTitle">
+                                    <option value="all" data-i18n="vfsAll">All</option>
+                                    <option value="modified" data-i18n="vfsModified">Modified</option>
+                                    <option value="original" data-i18n="vfsOriginal">Original</option>
+                                </select>
+                            </div>
+                            <div class="vfs-list-header">
+                                <span class="vfs-col-path" data-i18n="vfsPath">Path</span>
+                                <span class="vfs-col-size" data-i18n="vfsSize">Size</span>
+                            </div>
+                            <div class="vfs-list" id="vfs-list">
+                                <div class="muted" id="vfs-list-placeholder" data-i18n="vfsNoFiles">No files in VFS. Add libraries or files above.</div>
+                            </div>
+                        </div>
+                        <div class="vfs-detail" id="vfs-detail" style="display:none">
+                            <div class="vfs-detail-header">
+                                <span class="vfs-detail-path mono" id="vfs-detail-path"></span>
+                                <button type="button" class="btn btn-sm btn-primary" id="vfs-detail-save" data-i18n="vfsSave" data-i18n-title="vfsSaveTitle">Save</button>
+                            </div>
+                            <div class="vfs-detail-content">
+                                <textarea id="vfs-detail-text" class="vfs-detail-textarea" data-i18n-placeholder="vfsDetailPlaceholder"></textarea>
+                                <div class="vfs-detail-binary muted" id="vfs-detail-binary" style="display:none"><span data-i18n="vfsBinaryFile">Binary file — not editable. Size:</span> <span id="vfs-detail-size"></span> <span data-i18n="bytes">bytes</span>.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Timeline Bar (Tenet-style Timeless Debugger) -->
+        <section class="timeline-bar" id="timeline-bar" style="display:none">
+            <div class="timeline-controls">
+                <button class="btn btn-xs" id="btn-trace-start" data-i18n="timelineGoStart" data-i18n-title="timelineGoStartTitle">|&#171;</button>
+                <button class="btn btn-xs" id="btn-trace-back10" data-i18n="timelineBack10" data-i18n-title="timelineBack10Title">&#171;10</button>
+                <button class="btn btn-xs" id="btn-trace-back" data-i18n="timelineBack" data-i18n-title="timelineBackTitle">&#171;</button>
+                <button class="btn btn-xs" id="btn-trace-fwd" data-i18n="timelineFwd" data-i18n-title="timelineFwdTitle">&#187;</button>
+                <button class="btn btn-xs" id="btn-trace-fwd10" data-i18n="timelineFwd10" data-i18n-title="timelineFwd10Title">10&#187;</button>
+                <button class="btn btn-xs" id="btn-trace-end" data-i18n="timelineGoEnd" data-i18n-title="timelineGoEndTitle">&#187;|</button>
+                <span class="trace-position mono" id="trace-position">--</span>
+                <button class="btn btn-xs" id="btn-trace-live" data-i18n="live" data-i18n-title="liveTitle">Live</button>
+                <button class="btn btn-xs" id="btn-zoom-reset" data-i18n="fit" data-i18n-title="fitTitle">Fit</button>
+                <span class="zoom-info mono" id="zoom-info"></span>
+                <span class="trace-shortcuts" data-i18n="traceShortcuts">j/k iaddr   J/K daddr   &#8592;/&#8594; step   scroll zoom</span>
+            </div>
+            <div class="timeline-canvas-wrap" id="timeline-canvas-wrap">
+                <canvas id="timeline-canvas" height="120"></canvas>
+                <div class="timeline-selection" id="timeline-selection"></div>
+                <div class="timeline-cursor" id="timeline-cursor"></div>
+            </div>
+            <input type="range" id="timeline-slider" class="timeline-slider" min="0" max="0" value="0">
+        </section>
+
+        <!-- Info Bar -->
+        <section class="info-bar">
+            <div class="info-item">
+                <span class="label" data-i18n="infoRip">RIP</span>
+                <span class="value mono" id="info-rip">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label" data-i18n="infoInstruction">Instruction</span>
+                <span class="value mono" id="info-disasm">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label" data-i18n="infoCount">Count</span>
+                <span class="value mono" id="info-count">0</span>
+            </div>
+            <div class="info-item">
+                <span class="label" data-i18n="infoFlags">Flags</span>
+                <span class="value mono" id="info-flags">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label" data-i18n="infoDaddr">daddr</span>
+                <span class="value mono daddr-value" id="info-daddr">--</span>
+            </div>
+            <div class="info-item">
+                <span class="label" data-i18n="infoMode">Mode</span>
+                <span class="mode-badge" id="mode-badge">--</span>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>binb &mdash; Rust + WebAssembly &mdash;
+            <kbd>F5</kbd> Continue <kbd>F10</kbd> Step Over <kbd>F11</kbd> Step Into
+            <kbd>j</kbd>/<kbd>k</kbd> iaddr <kbd>J</kbd>/<kbd>K</kbd> daddr
+        </p>
+        <p class="footer-contact"><a href="mailto:contact@69.bzh">contact@69.bzh</a></p>
+        <p class="footer-beta">Beta software — <span id="footer-date"></span></p>
+    </footer>
+    <script>document.getElementById('footer-date').textContent = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });</script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
