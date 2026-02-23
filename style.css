@@ -2721,3 +2721,209 @@ body.dragover::after {
 .asm-listing .asm-bytes { color: #86efac; }
 .asm-listing .asm-source { color: var(--text-muted); }
 .asm-listing .asm-error { color: var(--red); }
+
+/* ── Mobile & touch compatibility ─────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    /* Safe area for notched devices */
+    body {
+        padding-left: env(safe-area-inset-left, 0);
+        padding-right: env(safe-area-inset-right, 0);
+    }
+    header,
+    .controls,
+    .info-bar,
+    .timeline-bar,
+    footer {
+        padding-left: max(0.75rem, env(safe-area-inset-left));
+        padding-right: max(0.75rem, env(safe-area-inset-right));
+    }
+
+    html { font-size: 15px; }
+
+    /* Header: reflow so theme/lang/help don’t overlap title */
+    header {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+    }
+    .header-content {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    .header-content .subtitle {
+        font-size: 0.7rem;
+    }
+    .theme-select,
+    .lang-select {
+        position: static;
+        transform: none;
+    }
+    .theme-select { order: 2; }
+    .lang-select { order: 3; }
+    .btn-help { order: 4; margin-left: auto; }
+
+    /* Controls: stack and larger touch targets */
+    .controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+    }
+    .upload-area {
+        flex-wrap: wrap;
+        gap: 0.4rem;
+    }
+    .file-name {
+        max-width: 140px;
+    }
+    .program-args-input {
+        min-width: 0;
+        max-width: 100%;
+        flex: 1 1 120px;
+        font-size: 16px; /* prevent iOS zoom on focus */
+    }
+    .action-buttons {
+        margin-left: 0;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+    /* Touch-friendly minimum 44px tap targets */
+    .btn:not(.btn-xs) {
+        min-height: 44px;
+        padding: 0.5rem 0.85rem;
+    }
+    .btn-sm {
+        min-height: 44px;
+        padding: 0.4rem 0.65rem;
+    }
+    .btn-help {
+        min-width: 44px;
+        min-height: 44px;
+    }
+    .theme-select,
+    .lang-select {
+        min-height: 44px;
+        padding: 0.4rem 0.6rem;
+    }
+    .strace-toggle,
+    .timeless-toggle {
+        min-height: 44px;
+        padding: 0.35rem 0.6rem;
+        display: inline-flex;
+        align-items: center;
+    }
+    .log-level-select {
+        min-height: 44px;
+        padding: 0.4rem 0.5rem;
+    }
+    .step-n-select {
+        min-height: 44px;
+    }
+
+    /* Tabs: horizontal scroll instead of wrap */
+    .center-tabs,
+    .right-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+        padding-left: 0.25rem;
+        padding-right: 0.25rem;
+    }
+    .tab-btn {
+        flex-shrink: 0;
+        min-height: 44px;
+        padding: 0.5rem 0.65rem;
+        font-size: 0.65rem;
+    }
+
+    /* Debugger layout already stacks at 700px; ensure min-heights don’t fight */
+    .debugger-layout {
+        max-height: calc(100vh - 180px);
+    }
+    .disasm-search-bar {
+        flex-wrap: wrap;
+    }
+    .disasm-search-input {
+        min-width: 0;
+        font-size: 16px; /* prevent iOS zoom */
+    }
+
+    /* Info bar */
+    .info-bar {
+        gap: 0.75rem;
+        padding: 0.35rem 0.75rem;
+    }
+    .info-item .value {
+        font-size: 0.7rem;
+        word-break: break-all;
+    }
+    .info-item .label {
+        font-size: 0.6rem;
+    }
+
+    /* Timeline bar */
+    .timeline-bar {
+        padding: 0.35rem 0.75rem;
+    }
+    .timeline-controls {
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+    .timeline-controls .btn-xs {
+        min-height: 36px;
+        min-width: 36px;
+    }
+    .trace-shortcuts {
+        font-size: 0.6rem;
+        display: block;
+        width: 100%;
+        margin-top: 0.2rem;
+    }
+
+    /* Help modal: near full-screen on small viewports */
+    .help-modal {
+        width: 95vw;
+        max-width: none;
+        max-height: 90vh;
+        border-radius: var(--radius);
+    }
+    .help-modal-body {
+        padding: 0.75rem;
+        font-size: 0.85rem;
+    }
+    .help-modal-header .btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    /* Footer */
+    footer {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.65rem;
+    }
+    footer kbd {
+        font-size: 0.55rem;
+        padding: 0.08rem 0.25rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .header-content h1 {
+        font-size: 1.1rem;
+    }
+    .upload-area .file-name {
+        max-width: 100px;
+    }
+    .help-modal {
+        width: 100vw;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+    .file-info-popup {
+        max-width: 95vw;
+        left: 50% !important;
+        transform: translateX(-50%);
+    }
+}
