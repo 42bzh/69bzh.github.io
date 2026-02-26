@@ -148,6 +148,12 @@
                 <button class="btn btn-primary" id="btn-upload" data-i18n="btnUpload" data-i18n-title="btnUploadTitle">Upload binary</button>
                 <input type="file" id="sysroot-zip-upload" accept=".zip,application/zip" hidden>
                 <button class="btn btn-secondary" id="btn-sysroot-zip" data-i18n="btnSysrootZip" data-i18n-title="btnSysrootZipTitle">Sysroot (ZIP)</button>
+                <select id="quick-sysroot" class="quick-sysroot-select" data-i18n-title="quickSysrootTitle">
+                    <option value="" data-i18n="quickSysrootNone">— Sysroot —</option>
+                    <option value="/sysroot-x64-linux.zip" data-i18n="quickSysrootX64">x64 Linux</option>
+                    <option value="/sysroot-i386-linux.zip" data-i18n="quickSysrootX86">x86 Linux</option>
+                    <option value="/sysroot-windows.zip" data-i18n="quickSysrootWin">Windows</option>
+                </select>
                 <button class="btn btn-shellcode-toggle" id="btn-shellcode-toggle" data-i18n="btnShellcode" data-i18n-title="btnShellcodeTitle">Load shellcode</button>
                 <span class="file-name" id="file-name" title="Click for details" data-i18n="fileNoFile">No file loaded</span>
                 <span class="file-info-badge" id="file-info-badge" style="display:none"></span>

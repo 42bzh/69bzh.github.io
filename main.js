@@ -150,6 +150,7 @@ const btnSysrootZip    = document.getElementById('btn-sysroot-zip');
 const sysrootName     = document.getElementById('sysroot-name');
 const sysrootFileLabel = document.getElementById('sysroot-file-label');
 const btnSysrootClear  = document.getElementById('btn-sysroot-clear');
+const quickSysrootSelect = document.getElementById('quick-sysroot');
 const programArgs     = document.getElementById('program-args');
 const btnContinue  = document.getElementById('btn-continue');
 const btnRun       = document.getElementById('btn-run');
@@ -421,6 +422,61 @@ function showSysrootStatus(msg, isError = false) {
     console.log('[binb] sysroot:', msg);
 }
 
+/**
+ * Load sysroot from a ZIP blob (File or Blob from fetch). Sets pendingSysrootFiles,
+ * updates UI, and reloads emulator if a binary is already loaded.
+ * @param {Blob} blob - ZIP file as Blob
+ * @param {string} fileName - Display name (e.g. file.name or URL basename)
+ */
+async function loadSysrootFromZipBlob(blob, fileName) {
+    if (typeof JSZip === 'undefined') {
+        showSysrootStatus('Error: JSZip library not loaded. Add the script tag or check network.', true);
+        return;
+    }
+    if (sysrootFileLabel) sysrootFileLabel.textContent = t('loading');
+    if (sysrootName) sysrootName.style.display = '';
+    try {
+        const zip = await JSZip.loadAsync(blob);
+        const paths = [];
+        const data = [];
+        const entries = Object.entries(zip.files);
+        for (const [name, entry] of entries) {
+            if (entry.dir || name.endsWith('/')) continue;
+            let path = name.replace(/^\.\//, '').replace(/^\/+/, '').replace(/\\/g, '/');
+            if (!path) continue;
+            const firstSlash = path.indexOf('/');
+            if (firstSlash !== -1) {
+                const first = path.slice(0, firstSlash);
+                if (first.toLowerCase().includes('sysroot')) path = path.slice(firstSlash + 1);
+            }
+            if (!path) continue;
+            const bytes = await entry.async('uint8array');
+            paths.push(path);
+            data.push(bytes);
+        }
+        pendingSysrootFiles = { paths, data, fileName };
+        sysrootPathSet = new Set(paths);
+        if (sysrootFileLabel) sysrootFileLabel.textContent = `${fileName} (${paths.length} files)`;
+        showSysrootStatus('Sysroot loaded: ' + paths.length + ' files from ' + fileName + '. Load or reload an ELF to use it.');
+        renderVfsList();
+        if (elfBytes && elfBytes.length > 0 && (isElf(elfBytes) || isPe(elfBytes))) {
+            showSysrootStatus('Reloading binary with sysroot…');
+            createEmulator(elfBytes, isPe(elfBytes) ? { asPe: true } : {});
+            showSysrootStatus('Binary reloaded with ' + paths.length + ' VFS files.');
+            if (vfsFilterSelect) vfsFilterSelect.value = 'all';
+            renderVfsList();
+        }
+    } catch (err) {
+        const msg = 'Failed to decompress sysroot ZIP: ' + (err.message || err);
+        showSysrootStatus(msg, true);
+        console.error('[binb] sysroot ZIP error:', err);
+        pendingSysrootFiles = null;
+        sysrootPathSet = null;
+        if (sysrootName) sysrootName.style.display = 'none';
+        if (sysrootFileLabel) sysrootFileLabel.textContent = '';
+    }
+}
+
 if (btnSysrootZip) {
     btnSysrootZip.addEventListener('click', () => {
         if (!sysrootZipUpload) {
@@ -442,54 +498,7 @@ if (sysrootZipUpload) {
             return;
         }
         showSysrootStatus('Sysroot ZIP: ' + file.name + ' (' + file.size + ' bytes)');
-        if (typeof JSZip === 'undefined') {
-            showSysrootStatus('Error: JSZip library not loaded. Add the script tag or check network.', true);
-            e.target.value = '';
-            return;
-        }
-        if (sysrootFileLabel) sysrootFileLabel.textContent = t('loading');
-        if (sysrootName) sysrootName.style.display = '';
-        try {
-            const zip = await JSZip.loadAsync(file);
-            const paths = [];
-            const data = [];
-            const entries = Object.entries(zip.files);
-            for (const [name, entry] of entries) {
-                if (entry.dir || name.endsWith('/')) continue;
-                let path = name.replace(/^\.\//, '').replace(/^\/+/, '').replace(/\\/g, '/');
-                if (!path) continue;
-                // If first path component contains "sysroot" (e.g. sysroot, sysroot-x64-local), strip it so the rest is a classic mount (e.g. /lib64/...)
-                const firstSlash = path.indexOf('/');
-                if (firstSlash !== -1) {
-                    const first = path.slice(0, firstSlash);
-                    if (first.toLowerCase().includes('sysroot')) path = path.slice(firstSlash + 1);
-                }
-                if (!path) continue;
-                const bytes = await entry.async('uint8array');
-                paths.push(path);
-                data.push(bytes);
-            }
-            pendingSysrootFiles = { paths, data, fileName: file.name };
-            sysrootPathSet = new Set(paths);
-            if (sysrootFileLabel) sysrootFileLabel.textContent = `${file.name} (${paths.length} files)`;
-            showSysrootStatus('Sysroot loaded: ' + paths.length + ' files from ' + file.name + '. Load or reload an ELF to use it.');
-            renderVfsList();
-            if (elfBytes && elfBytes.length > 0 && (isElf(elfBytes) || isPe(elfBytes))) {
-                showSysrootStatus('Reloading binary with sysroot…');
-                createEmulator(elfBytes, isPe(elfBytes) ? { asPe: true } : {});
-                showSysrootStatus('Binary reloaded with ' + paths.length + ' VFS files.');
-                if (vfsFilterSelect) vfsFilterSelect.value = 'all';
-                renderVfsList();
-            }
-        } catch (err) {
-            const msg = 'Failed to decompress sysroot ZIP: ' + (err.message || err);
-            showSysrootStatus(msg, true);
-            console.error('[binb] sysroot ZIP error:', err);
-            pendingSysrootFiles = null;
-            sysrootPathSet = null;
-            if (sysrootName) sysrootName.style.display = 'none';
-            if (sysrootFileLabel) sysrootFileLabel.textContent = '';
-        }
+        await loadSysrootFromZipBlob(file, file.name);
         e.target.value = '';
     });
 } else {
@@ -502,6 +511,28 @@ if (btnSysrootClear) {
         if (sysrootName) sysrootName.style.display = 'none';
         if (sysrootFileLabel) sysrootFileLabel.textContent = '';
         if (emulator) renderVfsList();
+    });
+}
+
+if (quickSysrootSelect) {
+    quickSysrootSelect.addEventListener('change', async () => {
+        const url = quickSysrootSelect.value;
+        if (!url) return;
+        const fileName = url.split('/').pop() || url;
+        showSysrootStatus('Quick sysroot: loading ' + fileName + '…');
+        try {
+            const resp = await fetch(url);
+            if (!resp.ok) {
+                showSysrootStatus('Quick sysroot failed: ' + resp.status + ' ' + resp.statusText + '.', true);
+                quickSysrootSelect.value = '';
+                return;
+            }
+            const blob = await resp.blob();
+            await loadSysrootFromZipBlob(blob, fileName);
+        } catch (e) {
+            showSysrootStatus('Quick sysroot failed: ' + (e.message || e) + '.', true);
+        }
+        quickSysrootSelect.value = '';
     });
 }
 

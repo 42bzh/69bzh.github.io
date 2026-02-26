@@ -190,6 +190,20 @@ header {
     line-height: 1.2;
 }
 
+.quick-sysroot-select {
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+    min-width: 7rem;
+}
+.quick-sysroot-select:hover { border-color: var(--accent); }
+.quick-sysroot-select:focus { outline: none; border-color: var(--accent); }
+
 .shellcode-panel,
 .shellcode-file-prompt {
     flex-basis: 100%;
@@ -2802,7 +2816,8 @@ body.dragover::after {
         min-height: 44px;
     }
     .theme-select,
-    .lang-select {
+    .lang-select,
+    .quick-sysroot-select {
         min-height: 44px;
         padding: 0.4rem 0.6rem;
     }
