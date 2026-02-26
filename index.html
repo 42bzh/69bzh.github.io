@@ -36,8 +36,11 @@
     <!-- Summary Modal -->
     <div class="help-modal-backdrop" id="summary-modal" style="display:none">
         <div class="help-modal summary-modal">
-            <div class="help-modal-header">
-                <h2 data-i18n="summaryTitle">Summary</h2>
+            <div class="help-modal-header summary-modal-header">
+                <div class="summary-modal-title">
+                    <img src="logo.png" alt="69 binb" class="summary-modal-logo">
+                    <h2 data-i18n="summaryTitle">Summary</h2>
+                </div>
                 <button class="btn btn-xs help-modal-close" id="btn-summary-close">&times;</button>
             </div>
             <div class="help-modal-body">
@@ -204,6 +207,15 @@
                 <span class="sysroot-name" id="sysroot-name" style="display:none" title="ZIP used as VFS for next run"><span data-i18n="sysrootLabel">Sysroot:</span> <span id="sysroot-file-label"></span> <button type="button" class="btn btn-xs sysroot-clear" id="btn-sysroot-clear" data-i18n-title="sysrootClear">×</button></span>
             </div>
             <div class="shellcode-panel" id="shellcode-panel" style="display:none">
+                <div class="shellcode-row shellcode-demo-row">
+                    <label data-i18n="shellcodeDemoLabel">Demo:</label>
+                    <select id="shellcode-demo" class="shellcode-demo-select" data-i18n-title="shellcodeDemoTitle">
+                        <option value="" data-i18n="shellcodeDemoNone">—</option>
+                        <option value="x64_exit" data-i18n="shellcodeDemoX64Exit">x86_64: exit(0)</option>
+                        <option value="x64_nop" data-i18n="shellcodeDemoX64Nop">x86_64: NOP sled</option>
+                        <option value="x64_int3" data-i18n="shellcodeDemoX64Int3">x86_64: int3 breakpoint</option>
+                    </select>
+                </div>
                 <div class="shellcode-row">
                     <label>Paste hex or C-style:</label>
                     <textarea id="shellcode-paste" class="shellcode-textarea" data-i18n-placeholder="shellcodePastePlaceholder"></textarea>
@@ -712,7 +724,17 @@
         <p class="footer-contact"><a href="mailto:contact@69.bzh">contact@69.bzh</a></p>
         <p class="footer-beta">Beta software — <span id="footer-date"></span></p>
     </footer>
-    <script>document.getElementById('footer-date').textContent = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });</script>
+    <script>
+    (function(){
+        // Update this date when you make changes (YYYY-MM-DD). Shown in footer as "last updated".
+        var LAST_UPDATED = '2026-02-26';
+        var el = document.getElementById('footer-date');
+        if (el) {
+            var d = new Date(LAST_UPDATED + 'T12:00:00');
+            el.textContent = isNaN(d.getTime()) ? LAST_UPDATED : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        }
+    })();
+    </script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
     <script type="module" src="main.js"></script>

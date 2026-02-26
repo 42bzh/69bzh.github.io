@@ -256,6 +256,7 @@ const vfsDetailSave = document.getElementById('vfs-detail-save');
 const shellcodePanel = document.getElementById('shellcode-panel');
 const shellcodePaste = document.getElementById('shellcode-paste');
 const shellcodeArch = document.getElementById('shellcode-arch');
+const shellcodeDemo = document.getElementById('shellcode-demo');
 const btnLoadPaste = document.getElementById('btn-load-paste');
 const shellcodeFilePrompt = document.getElementById('shellcode-file-prompt');
 const shellcodeFileArch = document.getElementById('shellcode-file-arch');
@@ -939,6 +940,13 @@ function createEmulator(bytes, opts = {}) {
 
 // ── Shellcode panel ──────────────────────────────────────────────────────────
 
+/** Preset shellcode demos for quick testing. hex is space-separated bytes. */
+const SHELLCODE_DEMOS = {
+    x64_exit: { hex: '48 31 c0 b0 3c 48 31 ff 0f 05', arch: 'x86_64' },   // xor rax,rax; mov al,60; xor rdi,rdi; syscall
+    x64_nop:  { hex: '90 90 90 90 90 90 90 90', arch: 'x86_64' },        // NOP sled
+    x64_int3: { hex: 'cc', arch: 'x86_64' },                              // int3 breakpoint
+};
+
 function setupShellcodePanel() {
     if (!btnShellcodeToggle || !shellcodePanel) return;
 
@@ -946,6 +954,23 @@ function setupShellcodePanel() {
         const visible = shellcodePanel.style.display !== 'none';
         shellcodePanel.style.display = visible ? 'none' : 'block';
     });
+
+    if (shellcodeDemo) {
+        shellcodeDemo.addEventListener('change', () => {
+            const id = shellcodeDemo.value;
+            if (!id || !SHELLCODE_DEMOS[id]) return;
+            const demo = SHELLCODE_DEMOS[id];
+            const arr = parseHexQuery(demo.hex);
+            if (!arr || arr.length === 0) return;
+            const bytes = new Uint8Array(arr);
+            hideShellcodeFilePrompt();
+            createEmulator(bytes, { asShellcode: true, arch: demo.arch });
+            if (shellcodePanel) shellcodePanel.style.display = 'none';
+            if (fileName) fileName.textContent = t('shellcodePasted');
+            updateFileInfoBadge('shellcode (demo)', bytes);
+            shellcodeDemo.value = '';
+        });
+    }
 
     if (btnLoadPaste) {
         btnLoadPaste.addEventListener('click', () => {
