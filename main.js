@@ -281,6 +281,7 @@ async function boot() {
     setupShellcodePanel();
     setupKeyboard();
     setupHelpModal();
+    setupSummaryModal();
     setupI18n();
     // Build entropy legend gradient in memory controls
     const eLegend = document.getElementById('mem-entropy-legend-bar');
@@ -301,6 +302,25 @@ function setupHelpModal() {
     const modal = document.getElementById('help-modal');
     const btnOpen = document.getElementById('btn-help');
     const btnClose = document.getElementById('btn-help-close');
+    if (!modal || !btnOpen) return;
+
+    btnOpen.addEventListener('click', () => { modal.style.display = 'flex'; });
+    btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.style.display = 'none';
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.style.display === 'flex') {
+            modal.style.display = 'none';
+            e.stopPropagation();
+        }
+    });
+}
+
+function setupSummaryModal() {
+    const modal = document.getElementById('summary-modal');
+    const btnOpen = document.getElementById('btn-summary');
+    const btnClose = document.getElementById('btn-summary-close');
     if (!modal || !btnOpen) return;
 
     btnOpen.addEventListener('click', () => { modal.style.display = 'flex'; });

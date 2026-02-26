@@ -8,22 +8,65 @@
 </head>
 <body>
     <header>
-        <div class="header-content">
-            <h1>binb</h1>
-            <p class="subtitle" data-i18n="subtitle">ELF (Linux) &amp; PE (Windows) binary emulator in the browser</p>
+        <div class="header-brand">
+            <a href="#" class="header-logo" title="binb" aria-label="binb">
+                <img src="logo.png" alt="69 binb" class="header-logo-img">
+            </a>
+            <div class="header-title-wrap">
+                <h1>binb</h1>
+                <p class="subtitle" data-i18n="subtitle">ELF (Linux) &amp; PE (Windows) binary emulator in the browser</p>
+            </div>
         </div>
-        <select id="theme-select" class="theme-select" title="Theme" aria-label="Theme">
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-        </select>
-        <select id="lang-select" class="lang-select" title="Language" aria-label="Language">
-            <option value="en">English</option>
-            <option value="fr">Français</option>
-            <option value="br">Brezhoneg</option>
-            <option value="zh">中文</option>
-        </select>
-        <button class="btn btn-help" id="btn-help" data-i18n-title="helpTitle">?</button>
+        <div class="header-actions">
+            <select id="theme-select" class="theme-select" title="Theme" aria-label="Theme">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+            </select>
+            <select id="lang-select" class="lang-select" title="Language" aria-label="Language">
+                <option value="en">English</option>
+                <option value="fr">Français</option>
+                <option value="br">Brezhoneg</option>
+                <option value="zh">中文</option>
+            </select>
+            <button class="btn btn-summary" id="btn-summary" data-i18n="summaryBtn" data-i18n-title="summaryTitle">!</button>
+            <button class="btn btn-help" id="btn-help" data-i18n-title="helpTitle">?</button>
+        </div>
     </header>
+
+    <!-- Summary Modal -->
+    <div class="help-modal-backdrop" id="summary-modal" style="display:none">
+        <div class="help-modal summary-modal">
+            <div class="help-modal-header">
+                <h2 data-i18n="summaryTitle">Summary</h2>
+                <button class="btn btn-xs help-modal-close" id="btn-summary-close">&times;</button>
+            </div>
+            <div class="help-modal-body">
+                <section class="help-section">
+                    <p data-i18n="summaryIntro">binb is a WebAssembly-based binary emulator that runs ELF (Linux) and PE (Windows) executables directly in the browser. It provides step-through debugging, syscall tracing, and a Timeless (time-travel) debugger with memory breakpoints.</p>
+                </section>
+                <section class="help-section">
+                    <h3 data-i18n="summaryFeaturesTitle">Features</h3>
+                    <ul class="help-tips">
+                        <li data-i18n="summaryFeature1">ELF and PE loading: run Linux and Windows binaries in the browser</li>
+                        <li data-i18n="summaryFeature2">Step-through debugging: Continue (F5), Step Into (F11), Step Over (F10)</li>
+                        <li data-i18n="summaryFeature3">Timeless mode: record every instruction and navigate backward/forward in time</li>
+                        <li data-i18n="summaryFeature4">Memory breakpoints (Tenet-style): track a data address, see reads/writes on the timeline, jump with J/K</li>
+                        <li data-i18n="summaryFeature5">Syscall tracing (strace): log Linux syscalls or Windows NT API calls</li>
+                        <li data-i18n="summaryFeature6">VFS / sysroot: load a ZIP as virtual filesystem for dynamic binaries (interpreters, libs, DLLs)</li>
+                        <li data-i18n="summaryFeature7">Shellcode: paste hex or load raw bytes and run as x86_64 or ARM64</li>
+                        <li data-i18n="summaryFeature8">Snapshots: save and restore VM state</li>
+                    </ul>
+                </section>
+                <section class="help-section">
+                    <h3 data-i18n="summaryPlatformsTitle">Platforms &amp; Architectures</h3>
+                    <table class="help-table">
+                        <tr><td data-i18n="summaryPlatformLinux">Linux (ELF)</td><td data-i18n="summaryArchLinux">x86-64, x86 (i386), ARM64 (AArch64) — static (musl) and dynamic (glibc with sysroot)</td></tr>
+                        <tr><td data-i18n="summaryPlatformWindows">Windows (PE)</td><td data-i18n="summaryArchWindows">x86-64 and x86 — EXE and DLL loading, partial NT syscall emulation</td></tr>
+                    </table>
+                </section>
+            </div>
+        </div>
+    </div>
 
     <!-- Help Modal -->
     <div class="help-modal-backdrop" id="help-modal" style="display:none">
@@ -34,105 +77,105 @@
             </div>
             <div class="help-modal-body">
                 <section class="help-section">
-                    <h3>Getting Started</h3>
-                    <p>Upload a binary (ELF for Linux, or PE for Windows EXE/DLL) using the <strong>Upload binary</strong> button or drag-and-drop onto the page. For <strong>dynamic</strong> binaries (linked against glibc), use <strong>Sysroot (ZIP)</strong> to upload a ZIP of your sysroot (e.g. <code>lib64/ld-linux-x86-64.so.2</code>, <code>lib/x86_64-linux-gnu/libc.so.6</code>); it is decompressed and used as the VFS when you load the ELF; for PE you can upload a ZIP with DLLs (e.g. <code>Windows/System32/ntdll.dll</code>). The <strong>Binary</strong> tab shows ELF or PE structure (headers, sections, exports). You can also run <strong>shellcode</strong>: click <strong>Load shellcode</strong> to paste hex or C-style bytes and choose architecture (x86_64 or arm64), or upload a non-ELF file and choose “Load as shellcode”. Then use the controls to step through or run.</p>
+                    <h3 data-i18n="helpGettingStarted">Getting Started</h3>
+                    <p data-i18n="helpGettingStartedText">Upload a binary (ELF for Linux, or PE for Windows EXE/DLL) using the Upload binary button or drag-and-drop onto the page. For <strong>dynamic</strong> binaries (linked against glibc), use <strong>Sysroot (ZIP)</strong> to upload a ZIP of your sysroot (e.g. <code>lib64/ld-linux-x86-64.so.2</code>, <code>lib/x86_64-linux-gnu/libc.so.6</code>); it is decompressed and used as the VFS when you load the ELF; for PE you can upload a ZIP with DLLs (e.g. <code>Windows/System32/ntdll.dll</code>). The <strong>Binary</strong> tab shows ELF or PE structure (headers, sections, exports). You can also run <strong>shellcode</strong>: click <strong>Load shellcode</strong> to paste hex or C-style bytes and choose architecture (x86_64 or arm64), or upload a non-ELF file and choose “Load as shellcode”. Then use the controls to step through or run.</p>
                 </section>
 
                 <section class="help-section">
-                    <h3>Color Legend</h3>
+                    <h3 data-i18n="helpColorLegend">Color Legend</h3>
                     <div class="help-colors">
                         <div class="help-color-row">
                             <span class="help-swatch" style="background: var(--yellow-dark)"></span>
-                            <span><strong>Dark yellow</strong> &mdash; Memory <em>read</em> (QIRA-style)</span>
+                            <span data-i18n="helpColorDarkYellow">Dark yellow — Memory read (QIRA-style)</span>
                         </div>
                         <div class="help-color-row">
                             <span class="help-swatch" style="background: var(--yellow-bright)"></span>
-                            <span><strong>Bright yellow</strong> &mdash; Memory <em>write</em> (QIRA-style)</span>
+                            <span data-i18n="helpColorBrightYellow">Bright yellow — Memory write (QIRA-style)</span>
                         </div>
                         <div class="help-color-row">
                             <span class="help-swatch" style="background: var(--accent)"></span>
-                            <span><strong>Blue</strong> &mdash; Current instruction / forward flow trail</span>
+                            <span data-i18n="helpColorBlue">Blue — Current instruction / forward flow trail</span>
                         </div>
                         <div class="help-color-row">
                             <span class="help-swatch" style="background: var(--red)"></span>
-                            <span><strong>Red</strong> &mdash; Backward flow trail / exec breakpoint hits</span>
+                            <span data-i18n="helpColorRed">Red — Backward flow trail / exec breakpoint hits</span>
                         </div>
                         <div class="help-color-row">
                             <span class="help-swatch" style="background: var(--green)"></span>
-                            <span><strong>Green</strong> &mdash; Active breakpoint addresses</span>
+                            <span data-i18n="helpColorGreen">Green — Active breakpoint addresses</span>
                         </div>
                         <div class="help-color-row">
                             <span class="help-swatch" style="background: var(--purple)"></span>
-                            <span><strong>Purple</strong> &mdash; Timeless mode active indicator</span>
+                            <span data-i18n="helpColorPurple">Purple — Timeless mode active indicator</span>
                         </div>
                         <div class="help-color-row">
                             <span class="help-swatch" style="background: #06b6d4"></span>
-                            <span><strong>Cyan</strong> &mdash; Syscall instructions in timeline (RIP lane) and disassembly</span>
+                            <span data-i18n="helpColorCyan">Cyan — Syscall instructions in timeline (RIP lane) and disassembly</span>
                         </div>
                     </div>
                 </section>
 
                 <section class="help-section">
-                    <h3>Timeline Lanes (Timeless Mode)</h3>
+                    <h3 data-i18n="helpTimelineLanes">Timeline Lanes (Timeless Mode)</h3>
                     <table class="help-table">
-                        <tr><td><strong>RIP</strong></td><td>Color-coded instruction address map</td></tr>
-                        <tr><td><strong>MEM</strong></td><td>All memory reads (dark yellow) and writes (bright yellow) per instruction</td></tr>
-                        <tr><td><strong>DADDR</strong></td><td>Accesses to the tracked data address (visible when a Memory breakpoint is set)</td></tr>
-                        <tr><td><strong>EXEC</strong></td><td>Execution breakpoint hits (click RIP in registers to set)</td></tr>
-                        <tr><td><strong>FLOW</strong></td><td>Blue (forward) and red (backward) trails from cursor</td></tr>
+                        <tr><td><strong data-i18n="helpRIP">RIP</strong></td><td data-i18n="helpRIPDesc">Color-coded instruction address map</td></tr>
+                        <tr><td><strong data-i18n="helpMEM">MEM</strong></td><td data-i18n="helpMEMDesc">All memory reads (dark yellow) and writes (bright yellow) per instruction</td></tr>
+                        <tr><td><strong data-i18n="helpDADDR">DADDR</strong></td><td data-i18n="helpDADDRDesc">Accesses to the tracked data address (visible when a Memory breakpoint is set)</td></tr>
+                        <tr><td><strong data-i18n="helpEXEC">EXEC</strong></td><td data-i18n="helpEXECDesc">Execution breakpoint hits (click RIP in registers to set)</td></tr>
+                        <tr><td><strong data-i18n="helpFLOW">FLOW</strong></td><td data-i18n="helpFLOWDesc">Blue (forward) and red (backward) trails from cursor</td></tr>
                     </table>
                 </section>
 
                 <section class="help-section">
-                    <h3>Memory Breakpoints (Tenet-style)</h3>
-                    <p class="help-lead">Track a memory address to see every read/write on the timeline and jump between accesses.</p>
+                    <h3 data-i18n="helpMemBp">Memory Breakpoints (Tenet-style)</h3>
+                    <p class="help-lead" data-i18n="helpMemBpLead">Track a memory address to see every read/write on the timeline and jump between accesses.</p>
                     <ol class="help-steps">
-                        <li><strong>Set:</strong> In the <strong>Memory</strong> tab, <strong>click a byte</strong> in the hex dump (or in the Memory Accesses preview). That address becomes the “tracked” address (daddr). In trace mode the view jumps to the last access.</li>
-                        <li><strong>Timeline:</strong> The <strong>DADDR</strong> lane shows every read/write to that address (yellow = read, blue = write).</li>
-                        <li><strong>Navigate:</strong> Press <kbd>J</kbd> / <kbd>K</kbd> to jump to the <strong>next</strong> / <strong>previous</strong> access in the trace.</li>
-                        <li><strong>Clear:</strong> Click the daddr value in the <strong>info bar</strong> (e.g. <code>0x1234 (1B)</code>) to clear the memory breakpoint.</li>
+                        <li data-i18n="helpMemBpSet">Set: In the Memory tab, <strong>click a byte</strong> in the hex dump (or in the Memory Accesses preview). That address becomes the “tracked” address (daddr). In trace mode the view jumps to the last access.</li>
+                        <li data-i18n="helpMemBpTimeline">Timeline: The DADDR lane shows every read/write to that address (yellow = read, blue = write).</li>
+                        <li data-i18n="helpMemBpNavigate">Navigate: Press J / K to jump to the next / previous access in the trace.</li>
+                        <li data-i18n="helpMemBpClear">Clear: Click the daddr value in the info bar (e.g. 0x1234 (1B)) to clear the memory breakpoint.</li>
                     </ol>
-                    <p class="help-note">Alternative: enter an address in the Memory field and click <strong>Watch</strong> to track that address (4 bytes). The <strong>Watch</strong> panel (right) lets you save multiple addresses and click one to set it as the active breakpoint.</p>
+                    <p class="help-note" data-i18n="helpMemBpNote">Alternative: enter an address in the Memory field and click Watch to track that address (4 bytes). The Watch panel (right) lets you save multiple addresses and click one to set it as the active breakpoint.</p>
                 </section>
 
                 <section class="help-section">
-                    <h3>Keyboard Shortcuts</h3>
+                    <h3 data-i18n="helpKbShortcuts">Keyboard Shortcuts</h3>
                     <table class="help-table">
-                        <tr><td><kbd>F5</kbd></td><td>Continue execution</td></tr>
-                        <tr><td><kbd>F10</kbd></td><td>Step over</td></tr>
-                        <tr><td><kbd>F11</kbd></td><td>Step into (single step)</td></tr>
-                        <tr><td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td><td>Step backward / forward in trace</td></tr>
-                        <tr><td><kbd>Shift+&larr;/&rarr;</kbd></td><td>Step 10 backward / forward</td></tr>
-                        <tr><td><kbd>Escape</kbd></td><td>Return to live execution</td></tr>
-                        <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td>Next / prev execution of same instruction (iaddr)</td></tr>
-                        <tr><td><kbd>J</kbd> / <kbd>K</kbd></td><td>Next / prev access to tracked data address (daddr)</td></tr>
-                        <tr><td><kbd>scroll</kbd></td><td>Zoom in/out on timeline</td></tr>
-                        <tr><td><kbd>drag</kbd></td><td>Select region on timeline to zoom</td></tr>
-                        <tr><td><kbd>dbl-click</kbd></td><td>Reset timeline zoom</td></tr>
+                        <tr><td><kbd>F5</kbd></td><td data-i18n="helpKbF5">Continue execution</td></tr>
+                        <tr><td><kbd>F10</kbd></td><td data-i18n="helpKbF10">Step over</td></tr>
+                        <tr><td><kbd>F11</kbd></td><td data-i18n="helpKbF11">Step into (single step)</td></tr>
+                        <tr><td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td><td data-i18n="helpKbArrows">Step backward / forward in trace</td></tr>
+                        <tr><td><kbd>Shift+&larr;/&rarr;</kbd></td><td data-i18n="helpKbShiftArrows">Step 10 backward / forward</td></tr>
+                        <tr><td><kbd>Escape</kbd></td><td data-i18n="helpKbEscape">Return to live execution</td></tr>
+                        <tr><td><kbd>j</kbd> / <kbd>k</kbd></td><td data-i18n="helpKbJK">Next / prev execution of same instruction (iaddr)</td></tr>
+                        <tr><td><kbd>J</kbd> / <kbd>K</kbd></td><td data-i18n="helpKbJKCap">Next / prev access to tracked data address (daddr)</td></tr>
+                        <tr><td><kbd>scroll</kbd></td><td data-i18n="helpKbScroll">Zoom in/out on timeline</td></tr>
+                        <tr><td><kbd>drag</kbd></td><td data-i18n="helpKbDrag">Select region on timeline to zoom</td></tr>
+                        <tr><td><kbd>dbl-click</kbd></td><td data-i18n="helpKbDblClick">Reset timeline zoom</td></tr>
                     </table>
                 </section>
 
                 <section class="help-section">
-                    <h3>Supported Architectures</h3>
+                    <h3 data-i18n="helpArch">Supported Architectures</h3>
                     <table class="help-table">
-                        <tr><td><strong>x86-64</strong></td><td>Full instruction set including SSE, atomic ops, bit manipulation</td></tr>
-                        <tr><td><strong>x86 (i386)</strong></td><td>32-bit mode with vDSO, set_thread_area, GS segment support</td></tr>
-                        <tr><td><strong>ARM64 (AArch64)</strong></td><td>Data processing, branches, loads/stores, system instructions, multiply/divide</td></tr>
-                        <tr><td><strong>Windows PE (x86 / x86-64)</strong></td><td>EXE and DLL loading; NT syscall emulation (partial)</td></tr>
+                        <tr><td><strong>x86-64</strong></td><td data-i18n="helpArchX64Desc">Full instruction set including SSE, atomic ops, bit manipulation</td></tr>
+                        <tr><td><strong>x86 (i386)</strong></td><td data-i18n="helpArchX86Desc">32-bit mode with vDSO, set_thread_area, GS segment support</td></tr>
+                        <tr><td><strong>ARM64 (AArch64)</strong></td><td data-i18n="helpArchARM64Desc">Data processing, branches, loads/stores, system instructions, multiply/divide</td></tr>
+                        <tr><td><strong data-i18n="helpArchWinLabel">Windows PE (x86)</strong></td><td data-i18n="helpArchWinDesc">EXE and DLL loading (x86 32-bit); NT syscall emulation (partial). x86-64 not yet supported.</td></tr>
                     </table>
                 </section>
 
                 <section class="help-section">
-                    <h3>Tips</h3>
+                    <h3 data-i18n="helpTips">Tips</h3>
                     <ul class="help-tips">
-                        <li>Enable <strong>Timeless</strong> before running to record the trace. Disable it for maximum speed.</li>
-                        <li>Use <strong>strace</strong> to see syscalls as they happen.</li>
-                        <li>Click any address in the Memory Accesses panel to see the surrounding memory.</li>
-                        <li><strong>Memory breakpoint:</strong> click a byte in the Memory view (or in the Accesses preview) to track that address — timeline shows reads/writes; <kbd>J</kbd>/<kbd>K</kbd> to seek. Click the daddr in the info bar to clear.</li>
-                        <li><strong>Memory “Watch” button:</strong> tracks the address currently in the Memory address field as the active data address (daddr, 4 bytes). The timeline then shows reads/writes to that address and <kbd>J</kbd>/<kbd>K</kbd> jump between accesses. To save addresses in a list, use the <strong>Watch</strong> panel (right) and add from there.</li>
-                        <li>Click the <strong>RIP</strong> value in the Registers panel to mark it as an execution breakpoint on the timeline.</li>
-                        <li>Drag on the timeline to zoom into a region. Scroll to zoom, double-click to reset.</li>
-                        <li>The <strong>Watch</strong> panel keeps a list of data addresses and shows hit counts over the trace; click one to set it as the active daddr. Use <kbd>J</kbd>/<kbd>K</kbd> to jump between accesses.</li>
+                        <li data-i18n="helpTip1">Enable Timeless before running to record the trace. Disable it for maximum speed.</li>
+                        <li data-i18n="helpTip2">Use strace to see syscalls as they happen.</li>
+                        <li data-i18n="helpTip3">Click any address in the Memory Accesses panel to see the surrounding memory.</li>
+                        <li data-i18n="helpTip4">Memory breakpoint: click a byte in the Memory view (or in the Accesses preview) to track that address — timeline shows reads/writes; <kbd>J</kbd>/<kbd>K</kbd> to seek. Click the daddr in the info bar to clear.</li>
+                        <li data-i18n="helpTip5">Memory Watch button: tracks the address currently in the Memory address field as the active data address (daddr, 4 bytes). The timeline then shows reads/writes to that address and J/K jump between accesses. To save addresses in a list, use the Watch panel (right) and add from there.</li>
+                        <li data-i18n="helpTip6">Click the RIP value in the Registers panel to mark it as an execution breakpoint on the timeline.</li>
+                        <li data-i18n="helpTip7">Drag on the timeline to zoom into a region. Scroll to zoom, double-click to reset.</li>
+                        <li data-i18n="helpTip8">The Watch panel keeps a list of data addresses and shows hit counts over the trace; click one to set it as the active daddr. Use J/K to jump between accesses.</li>
                     </ul>
                 </section>
             </div>
