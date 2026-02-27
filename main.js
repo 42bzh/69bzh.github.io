@@ -415,10 +415,12 @@ if (btnDemo) {
             if (isElf(bytes)) {
                 pendingShellcodeBytes = null;
                 hideShellcodeFilePrompt();
+                await fetchDemoSysrootIfNeeded(bytes, false);
                 createEmulator(bytes);
             } else if (isPe(bytes)) {
                 pendingShellcodeBytes = null;
                 hideShellcodeFilePrompt();
+                await fetchDemoSysrootIfNeeded(bytes, true);
                 createEmulator(bytes, { asPe: true });
             } else {
                 pendingShellcodeBytes = bytes;
@@ -577,11 +579,13 @@ async function loadFile(file) {
     if (isElf(bytes)) {
         pendingShellcodeBytes = null;
         hideShellcodeFilePrompt();
+        await fetchDemoSysrootIfNeeded(bytes, false);
         console.log('[binb] ELF loaded, sysroot set?', !!pendingSysrootFiles, pendingSysrootFiles ? pendingSysrootFiles.paths.length + ' files' : '');
         createEmulator(bytes);
     } else if (isPe(bytes)) {
         pendingShellcodeBytes = null;
         hideShellcodeFilePrompt();
+        await fetchDemoSysrootIfNeeded(bytes, true);
         console.log('[binb] PE loaded, sysroot set?', !!pendingSysrootFiles, pendingSysrootFiles ? pendingSysrootFiles.paths.length + ' files' : '');
         createEmulator(bytes, { asPe: true });
     } else {
@@ -637,6 +641,72 @@ function peTypeString(bytes) {
     return (ch & 0x2000) ? 'DLL' : 'EXE';
 }
 
+/** Return 'static' or 'dynamic' for ELF (based on PT_INTERP); '' for non-ELF. */
+function elfLinkType(bytes) {
+    if (!isElf(bytes)) return '';
+    return elfHasInterpreter(bytes) ? 'dynamic' : 'static';
+}
+
+/** True if ELF has PT_INTERP (dynamic linker), i.e. needs a sysroot to run. */
+function elfHasInterpreter(bytes) {
+    if (!isElf(bytes) || bytes.length < 58) return false;
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const is64 = bytes[4] === 2;
+    let e_phoff, e_phnum, e_phentsize;
+    if (is64) {
+        e_phoff = Number(dv.getBigUint64(32, true));
+        e_phentsize = dv.getUint16(54, true);
+        e_phnum = dv.getUint16(56, true);
+    } else {
+        e_phoff = dv.getUint32(28, true);
+        e_phentsize = dv.getUint16(42, true);
+        e_phnum = dv.getUint16(44, true);
+    }
+    const PT_INTERP = 3;
+    for (let i = 0; i < e_phnum; i++) {
+        const off = e_phoff + i * e_phentsize;
+        if (off + 4 > bytes.length) break;
+        if (dv.getUint32(off, true) === PT_INTERP) return true;
+    }
+    return false;
+}
+
+/** Return demo sysroot ZIP URL for this binary (ELF or PE), or null if not applicable. */
+function getDemoSysrootUrlForBinary(bytes, isPe) {
+    if (isPe) return '/sysroot-windows.zip';
+    if (!isElf(bytes) || bytes.length < 20) return null;
+    const e_machine = bytes[18] | (bytes[19] << 8);
+    // EM_386 = 3 → i386 Linux; EM_X86_64 = 62, EM_AARCH64 = 183 → x64 Linux
+    if (e_machine === 3) return '/sysroot-i386-linux.zip';
+    return '/sysroot-x64-linux.zip';
+}
+
+/**
+ * If the binary is dynamic (ELF with PT_INTERP or PE) and no sysroot is set,
+ * fetch the demo sysroot so the user can still view/run the binary.
+ */
+async function fetchDemoSysrootIfNeeded(bytes, isPe) {
+    if (pendingSysrootFiles) return;
+    const needsSysroot = isPe || elfHasInterpreter(bytes);
+    if (!needsSysroot) return;
+    const url = getDemoSysrootUrlForBinary(bytes, isPe);
+    if (!url) return;
+    const fileName = url.split('/').pop() || 'sysroot.zip';
+    showSysrootStatus(t('sysrootAutoFetch') + ' ' + fileName + '…');
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+            console.warn('[binb] Demo sysroot fetch failed:', resp.status, resp.statusText);
+            return;
+        }
+        const blob = await resp.blob();
+        await loadSysrootFromZipBlob(blob, fileName);
+        showSysrootStatus(t('sysrootAutoFetched') + ' ' + fileName);
+    } catch (e) {
+        console.warn('[binb] Demo sysroot fetch failed:', e);
+    }
+}
+
 function formatSize(n) {
     if (n < 1024) return `${n} B`;
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -652,10 +722,12 @@ async function updateFileInfoBadge(name, bytes) {
     const pe = isPe(bytes);
     const arch = elf ? elfArchString(bytes) : pe ? peArchString(bytes) : 'shellcode';
     const type = elf ? elfTypeString(bytes) : pe ? peTypeString(bytes) : 'raw';
+    const linkType = elfLinkType(bytes); // 'static' | 'dynamic' | ''
     const hash = await sha256hex(bytes);
     _fileInfo = { name, size: bytes.length, arch, type, sha256: hash };
     if (fileInfoBadge) {
-        fileInfoBadge.textContent = `${arch} · ${formatSize(bytes.length)}`;
+        const linkPart = linkType ? ` · ${linkType}` : '';
+        fileInfoBadge.textContent = `${arch} · ${formatSize(bytes.length)}${linkPart}`;
         fileInfoBadge.style.display = '';
     }
 }
