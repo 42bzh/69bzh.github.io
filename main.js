@@ -742,9 +742,12 @@ function buildPeSummaryHtml(data) {
     html += '</pre></div>';
     if (data.rich_header && data.rich_header.present) {
         const rh = data.rich_header;
-        html += '<div class="pe-summary-section"><strong>Rich header</strong><pre class="pe-summary-pre">';
+        html += '<div class="pe-summary-section"><strong>Rich header (compiler / linker)</strong><pre class="pe-summary-pre">';
         html += `Present: yes\nSize: ${rh.size} bytes\nChecksum: ${escapeHtml(rh.checksum)}`;
-        if (rh.tool_count) html += `\nTools: ${rh.tool_count}`;
+        if (rh.tools && rh.tools.length > 0) {
+            html += '\n\nTools:';
+            for (const t of rh.tools) html += `\n  ${escapeHtml(t.name)} — build ${t.build} (×${t.use_count})`;
+        } else if (rh.tool_count) html += `\nTools: ${rh.tool_count}`;
         html += '</pre></div>';
     }
     if (data.sections && data.sections.length > 0) {
@@ -818,6 +821,11 @@ function buildElfSummaryHtml(data) {
     html += '<div class="pe-summary-section"><strong>Header</strong><pre class="pe-summary-pre">';
     html += `Class:   ${escapeHtml(h.class)}\nData:    ${escapeHtml(h.data)}\nType:    ${escapeHtml(h.e_type)}\nMachine: ${escapeHtml(h.e_machine)}\nEntry:   ${escapeHtml(h.entry)}`;
     html += '</pre></div>';
+    if (data.compiler_info && data.compiler_info.length > 0) {
+        html += '<div class="pe-summary-section"><strong>Compiler / build tools</strong><ul class="pe-summary-list">';
+        for (const c of data.compiler_info) html += '<li>' + escapeHtml(c) + '</li>';
+        html += '</ul></div>';
+    }
     const sec = data.security;
     const pieFromType = (h.e_type || '').indexOf('ET_DYN') !== -1;
     const pieStr = sec ? (sec.pie ? '<span class="pe-sig-present">Yes</span>' : '<span class="pe-sig-absent">No</span>') : (pieFromType ? '<span class="pe-sig-present">Yes</span>' : '<span class="pe-sig-absent">No</span>');
@@ -1746,6 +1754,8 @@ function resetSession() {
     if (yaraStatus) yaraStatus.textContent = '';
     if (yaraMatchCount) yaraMatchCount.textContent = '';
     if (yaraSummary) yaraSummary.textContent = '';
+    _lastSelectedRuleSource = '';
+    _lastSelectedRuleName = '';
 
     // Assembly tab
     if (asmEditor) asmEditor.value = '';
@@ -3046,6 +3056,11 @@ e_shstrndx: ${h.e_shstrndx}
 `;
         html += '</pre></div>';
     }
+    if (data.compiler_info && data.compiler_info.length > 0) {
+        html += '<div class="elf-section"><span class="elf-section-title">Compiler / build tools</span><ul class="elf-compiler-list">';
+        for (const c of data.compiler_info) html += '<li>' + escapeHtml(c) + '</li>';
+        html += '</ul></div>';
+    }
     if (data.program_headers && data.program_headers.length > 0) {
         html += '<div class="elf-section"><span class="elf-section-title">Program Headers</span>';
         html += '<table class="elf-table"><thead><tr><th>Type</th><th>Flags</th><th>Offset</th><th>VirtAddr</th><th>FileSiz</th><th>MemSiz</th><th>Align</th></tr></thead><tbody>';
@@ -3165,10 +3180,20 @@ Type:      ${h.is_dll ? 'DLL' : 'EXE'}
         }
         html += '</tbody></table></div>';
     }
-    if (data.rich_header) {
+    // Always show Rich Header section for PE (present or not)
+    {
         const rh = data.rich_header;
-        html += '<div class="elf-section"><span class="elf-section-title">Rich Header</span>';
-        html += '<pre class="elf-header-pre">Present: ' + (rh.present ? 'yes' : 'no') + '\nSize: ' + rh.size + ' bytes\nChecksum: ' + escapeHtml(rh.checksum) + (rh.tool_count ? '\nTools: ' + rh.tool_count : '') + '</pre></div>';
+        html += '<div class="elf-section"><span class="elf-section-title">Rich Header (compiler / linker)</span><pre class="elf-header-pre">';
+        if (rh && rh.present) {
+            html += 'Present: yes\nSize: ' + rh.size + ' bytes\nChecksum: ' + escapeHtml(rh.checksum);
+            if (rh.tools && rh.tools.length > 0) {
+                html += '\n\nTools:';
+                for (const t of rh.tools) html += '\n  ' + escapeHtml(t.name) + ' — build ' + t.build + ' (×' + t.use_count + ')';
+            } else if (rh.tool_count) html += '\nTools: ' + rh.tool_count;
+        } else {
+            html += 'Present: no';
+        }
+        html += '</pre></div>';
     }
     if (data.overlay) {
         const ov = data.overlay;
@@ -5171,9 +5196,63 @@ const yaraMatchCount = document.getElementById('yara-match-count');
 const yaraSummary = document.getElementById('yara-summary');
 const btnYaraScan = document.getElementById('btn-yara-scan');
 const btnYaraRunAll = document.getElementById('btn-yara-run-all');
+const btnYaraRunSelected = document.getElementById('btn-yara-run-selected');
 const btnYaraClear = document.getElementById('btn-yara-clear');
 const yaraFileInput = document.getElementById('yara-file-input');
 const yaraExampleSelect = document.getElementById('yara-example-select');
+const yaraRuleSearch = document.getElementById('yara-rule-search');
+const btnYaraFetchForge = document.getElementById('btn-yara-fetch-forge');
+
+const YARA_FORGE_ZIP_URL = '/yara-forge-rules-full.zip';
+
+/** Parsed YARA-Forge rules after fetch; used when user picks from Example Rules. [{ name, source }] */
+let _yaraForgeRules = [];
+
+/** Last rule source/name selected from Example Rules dropdown; used by "Run selected rule". */
+let _lastSelectedRuleSource = '';
+let _lastSelectedRuleName = '';
+
+/** Rebuild YARA-Forge optgroup from _yaraForgeRules, filtered by search query (case-insensitive match on rule name). */
+function refreshYaraForgeOptgroup(searchQuery) {
+    const optgroup = document.getElementById('yara-forge-optgroup');
+    if (!optgroup) return;
+    optgroup.innerHTML = '';
+    const q = (searchQuery || '').trim().toLowerCase();
+    _yaraForgeRules.forEach((r, i) => {
+        if (q && !r.name.toLowerCase().includes(q)) return;
+        const opt = document.createElement('option');
+        opt.value = 'forge:' + i;
+        opt.textContent = r.name;
+        optgroup.appendChild(opt);
+    });
+}
+
+/** Parses a blob of YARA source into individual rules (by rule name and matching braces). Returns [{ name, source }]. */
+function parseYaraRulesFromSource(text) {
+    const rules = [];
+    const re = /\brule\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\{/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        const name = m[1];
+        let depth = 1;
+        let i = m.index + m[0].length;
+        let inString = false;
+        let escape = false;
+        while (i < text.length && depth > 0) {
+            const c = text[i];
+            if (escape) { escape = false; i++; continue; }
+            if (c === '\\' && inString) { escape = true; i++; continue; }
+            if (c === '"') { inString = !inString; i++; continue; }
+            if (!inString) {
+                if (c === '{') depth++;
+                else if (c === '}') depth--;
+            }
+            i++;
+        }
+        rules.push({ name, source: text.slice(m.index, i).trim() });
+    }
+    return rules;
+}
 
 /** Escape for HTML text content */
 function escapeHtmlYara(s) {
@@ -5352,70 +5431,127 @@ rule pe_packer_sections {
 }`
 };
 
-/** Run YARA scan with given rule source and render results (used for PE auto-scan). */
+/** Run YARA scan with given rule source and render results. Runs each rule separately so parse errors in one rule don't block others. */
 function runYaraScanWithSource(source) {
     if (!emulator) return;
-    const rules = (typeof source === 'string' ? source : '').trim();
-    if (!rules) return;
-    if (yaraStatus) yaraStatus.textContent = 'Scanning...';
+    const rulesSource = (typeof source === 'string' ? source : '').trim();
+    if (!rulesSource) return;
+
     yaraResults.innerHTML = '';
     if (yaraMatchCount) yaraMatchCount.textContent = '';
     if (yaraSummary) yaraSummary.textContent = '';
 
-    try {
-        const t0 = performance.now();
-        const json = emulator.yara_scan(rules);
-        const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
-        const matches = JSON.parse(json);
-        yaraStatus.textContent = `${matches.length} match(es) in ${elapsed}s`;
+    const parsedRules = parseYaraRulesFromSource(rulesSource);
+    const t0 = performance.now();
 
-        // Summary: unique rules and total matches
-        const rulesMatched = new Set(matches.map(m => m.rule));
-        if (yaraMatchCount) {
-            yaraMatchCount.textContent = matches.length > 0 ? `(${matches.length} matches)` : '';
-        }
-        if (yaraSummary && matches.length > 0) {
-            yaraSummary.textContent = `${rulesMatched.size} rule(s) matched`;
-        }
-
-        if (matches.length === 0) {
-            yaraResults.innerHTML = '<span class="muted">No matches found. Run all rules to scan full memory.</span>';
+    if (parsedRules.length === 0) {
+        // No rules could be parsed (e.g. single malformed rule or empty). Try running the whole source once.
+        if (yaraStatus) yaraStatus.textContent = 'Scanning (single rule)...';
+        try {
+            const json = emulator.yara_scan(rulesSource);
+            const matches = JSON.parse(json);
+            const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
+            renderYaraResults(matches, elapsed, 0, []);
+            return;
+        } catch (e) {
+            const errMsg = e.message || String(e);
+            if (yaraStatus) yaraStatus.textContent = `Error: ${errMsg}`;
+            if (yaraResults) yaraResults.innerHTML = `<span style="color:var(--red)">${escapeHtmlYara(errMsg)}</span>`;
+            console.error('[YARA] Scan failed:', e);
             return;
         }
-
-        let html = '';
-        for (const m of matches) {
-            html += `<div class="yara-match-row" data-addr="${m.addr_num}" title="Click to view in memory">`;
-            html += `<span class="yara-match-rule">${escapeHtmlYara(m.rule)}</span>`;
-            html += `<span class="yara-match-pattern">${escapeHtmlYara(m.pattern)}</span>`;
-            html += `<span class="yara-match-addr">${m.addr}</span>`;
-            html += `<span class="yara-match-len">${m.len}B</span>`;
-            html += `<span class="yara-match-preview">${escapeHtmlYara(m.preview)}</span>`;
-            html += `</div>`;
-        }
-        yaraResults.innerHTML = html;
-
-        yaraResults.querySelectorAll('.yara-match-row').forEach(row => {
-            row.addEventListener('click', () => {
-                const addr = parseFloat(row.dataset.addr);
-                if (!isNaN(addr) && emulator) {
-                    const memAddr = document.getElementById('mem-addr');
-                    if (memAddr) {
-                        memAddr.value = '0x' + Math.floor(addr).toString(16);
-                        document.getElementById('btn-mem-go')?.click();
-                    }
-                    const memTab = document.querySelector('[data-tab="memory-tab"]');
-                    if (memTab) memTab.click();
-                }
-            });
-        });
-    } catch (e) {
-        if (yaraStatus) yaraStatus.textContent = 'Error';
-        if (yaraResults) yaraResults.innerHTML = `<span style="color:var(--red)">${escapeHtmlYara(e.message || String(e))}</span>`;
     }
+
+    if (yaraStatus) yaraStatus.textContent = `Scanning ${parsedRules.length} rule(s)...`;
+    const allMatches = [];
+    const skipped = [];
+
+    for (const r of parsedRules) {
+        try {
+            const json = emulator.yara_scan(r.source);
+            const matches = JSON.parse(json);
+            allMatches.push(...matches);
+        } catch (e) {
+            const errMsg = e.message || String(e);
+            skipped.push({ name: r.name, error: errMsg });
+            console.warn(`[YARA] Rule "${r.name}" skipped:`, errMsg);
+        }
+    }
+
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
+    renderYaraResults(allMatches, elapsed, parsedRules.length, skipped);
 }
 
-/** Run YARA scan using the editor content (used by Run all rules / Scan Memory). */
+/** Render YARA match list and status; skippedList is [{ name, error }]. */
+function renderYaraResults(matches, elapsed, rulesScanned, skippedList) {
+    const rulesMatched = new Set(matches.map(m => m.rule));
+
+    let statusText = `${matches.length} match(es) in ${elapsed}s (${rulesMatched.size} rule(s) matched)`;
+    if (skippedList.length > 0) {
+        statusText += ` · ${skippedList.length} rule(s) skipped (parse errors)`;
+    }
+    if (yaraStatus) yaraStatus.textContent = statusText;
+    if (yaraMatchCount) yaraMatchCount.textContent = matches.length > 0 ? `(${matches.length} matches)` : '';
+    if (yaraSummary && (matches.length > 0 || skippedList.length > 0)) {
+        let s = `${rulesMatched.size} rule(s) matched`;
+        if (skippedList.length > 0) s += `, ${skippedList.length} skipped`;
+        yaraSummary.textContent = s;
+    }
+
+    console.log(`[YARA] Scanned ${rulesScanned} rule(s) in ${elapsed}s: ${matches.length} match(es), ${rulesMatched.size} rule(s) matched${skippedList.length > 0 ? `, ${skippedList.length} skipped` : ''}`);
+
+    let html = '';
+    if (skippedList.length > 0) {
+        html += `<div class="yara-skipped-log">`;
+        html += `<div class="yara-skipped-log-title">⚠ ${skippedList.length} rule(s) skipped (errors):</div>`;
+        for (const s of skippedList) {
+            html += `<div class="yara-skipped-log-line"><span class="yara-skipped-log-rule">${escapeHtmlYara(s.name)}</span><span class="yara-skipped-log-error">${escapeHtmlYara(s.error)}</span></div>`;
+        }
+        html += '</div>';
+    }
+    if (matches.length === 0) {
+        html += '<span class="muted">No matches found. Run all rules to scan full memory.</span>';
+        yaraResults.innerHTML = html;
+        return;
+    }
+    for (const m of matches) {
+        html += `<div class="yara-match-row" data-addr="${m.addr_num}" title="Click to view in memory">`;
+        html += `<span class="yara-match-rule">${escapeHtmlYara(m.rule)}</span>`;
+        html += `<span class="yara-match-pattern">${escapeHtmlYara(m.pattern)}</span>`;
+        html += `<span class="yara-match-addr">${m.addr}</span>`;
+        html += `<span class="yara-match-len">${m.len}B</span>`;
+        html += `<span class="yara-match-preview">${escapeHtmlYara(m.preview)}</span>`;
+        html += `</div>`;
+    }
+    yaraResults.innerHTML = html;
+
+    yaraResults.querySelectorAll('.yara-match-row').forEach(row => {
+        row.addEventListener('click', () => {
+            const addr = parseFloat(row.dataset.addr);
+            if (!isNaN(addr) && emulator) {
+                const memAddr = document.getElementById('mem-addr');
+                if (memAddr) {
+                    memAddr.value = '0x' + Math.floor(addr).toString(16);
+                    document.getElementById('btn-mem-go')?.click();
+                }
+                const memTab = document.querySelector('[data-tab="memory-tab"]');
+                if (memTab) memTab.click();
+            }
+        });
+    });
+}
+
+/** Returns combined source of all available rules: built-in examples + all YARA-Forge rules (if loaded). */
+function getAllYaraRulesSource() {
+    const builtInKeys = Object.keys(YARA_EXAMPLES).filter(k => k !== 'all_examples');
+    const parts = builtInKeys.map(k => YARA_EXAMPLES[k]).filter(Boolean);
+    if (_yaraForgeRules.length > 0) {
+        parts.push(..._yaraForgeRules.map(r => r.source));
+    }
+    return parts.join('\n\n');
+}
+
+/** Run YARA scan using the editor content (used by Scan Memory). */
 function runYaraScanAndShowResults() {
     if (!emulator) {
         if (yaraStatus) yaraStatus.textContent = 'No binary loaded';
@@ -5429,9 +5565,38 @@ function runYaraScanAndShowResults() {
     runYaraScanWithSource(source);
 }
 
+/** Run YARA scan with all available rules (built-in + YARA-Forge). */
+function runAllYaraRules() {
+    if (!emulator) {
+        if (yaraStatus) yaraStatus.textContent = 'No binary loaded';
+        return;
+    }
+    const source = getAllYaraRulesSource();
+    if (!source.trim()) {
+        if (yaraStatus) yaraStatus.textContent = 'No rules loaded. Load examples or fetch YARA-Forge rules.';
+        return;
+    }
+    runYaraScanWithSource(source);
+}
+
 if (btnYaraRunAll) {
     btnYaraRunAll.addEventListener('click', () => {
-        runYaraScanAndShowResults();
+        runAllYaraRules();
+    });
+}
+
+if (btnYaraRunSelected) {
+    btnYaraRunSelected.addEventListener('click', () => {
+        if (!emulator) {
+            if (yaraStatus) yaraStatus.textContent = 'No binary loaded';
+            return;
+        }
+        if (!_lastSelectedRuleSource) {
+            if (yaraStatus) yaraStatus.textContent = 'Select a rule from Example Rules first, then click Run selected rule.';
+            return;
+        }
+        if (_lastSelectedRuleName) console.log(`[YARA] Running selected rule: ${_lastSelectedRuleName}`);
+        runYaraScanWithSource(_lastSelectedRuleSource);
     });
 }
 
@@ -5485,14 +5650,75 @@ if (yaraExampleSelect) {
                 .map(k => YARA_EXAMPLES[k])
                 .join('\n\n');
             yaraEditor.value = all;
+            _lastSelectedRuleSource = '';
+            _lastSelectedRuleName = '';
             yaraStatus.textContent = 'Loaded all examples. Click "Run all rules" to see results.';
+        } else if (key.startsWith('forge:')) {
+            const i = parseInt(key.slice(6), 10);
+            if (!isNaN(i) && _yaraForgeRules[i]) {
+                const r = _yaraForgeRules[i];
+                yaraEditor.value = r.source;
+                _lastSelectedRuleSource = r.source;
+                _lastSelectedRuleName = r.name;
+                yaraStatus.textContent = `YARA-Forge: ${r.name}. Click "Run selected rule" to scan with this rule only.`;
+            }
         } else if (YARA_EXAMPLES[key]) {
             yaraEditor.value = YARA_EXAMPLES[key];
-            yaraStatus.textContent = `Example: ${key}`;
+            _lastSelectedRuleSource = YARA_EXAMPLES[key];
+            _lastSelectedRuleName = key;
+            yaraStatus.textContent = `Example: ${key}. Click "Run selected rule" to scan with this rule only.`;
         }
         refreshYaraHighlight();
         yaraExampleSelect.value = '';
     });
+}
+
+if (yaraRuleSearch) {
+    yaraRuleSearch.addEventListener('input', () => {
+        refreshYaraForgeOptgroup(yaraRuleSearch.value);
+    });
+    yaraRuleSearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            yaraRuleSearch.value = '';
+            refreshYaraForgeOptgroup('');
+            yaraRuleSearch.blur();
+        }
+    });
+}
+
+if (btnYaraFetchForge && typeof JSZip !== 'undefined') {
+    btnYaraFetchForge.addEventListener('click', async () => {
+        if (!yaraStatus) return;
+        btnYaraFetchForge.disabled = true;
+        yaraStatus.textContent = 'Fetching YARA-Forge rules...';
+        try {
+            const res = await fetch(YARA_FORGE_ZIP_URL);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const buf = await res.arrayBuffer();
+            const zip = await JSZip.loadAsync(buf);
+            const entries = Object.entries(zip.files).filter(([, file]) => !file.dir);
+            if (entries.length === 0) {
+                yaraStatus.textContent = 'No files found in the archive.';
+                return;
+            }
+            const contents = await Promise.all(entries.map(([, file]) => file.async('text')));
+            const combined = contents.join('\n\n');
+            const rules = parseYaraRulesFromSource(combined);
+            if (rules.length === 0) {
+                yaraStatus.textContent = 'No YARA rules found in the archive.';
+                return;
+            }
+            _yaraForgeRules = rules;
+            refreshYaraForgeOptgroup(yaraRuleSearch ? yaraRuleSearch.value.trim() : '');
+            yaraStatus.textContent = `Loaded ${rules.length} rule(s) into Example Rules. Select a rule to load.`;
+        } catch (e) {
+            yaraStatus.textContent = `Failed to load YARA-Forge: ${e.message || String(e)}`;
+        } finally {
+            btnYaraFetchForge.disabled = false;
+        }
+    });
+} else if (btnYaraFetchForge) {
+    btnYaraFetchForge.title = 'Fetch YARA-Forge rules (requires JSZip)';
 }
 
 // YARA editor: Tab key and syntax highlight sync

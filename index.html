@@ -438,12 +438,14 @@
                 <div class="tab-content" id="yara-tab">
                     <div class="yara-controls">
                         <button class="btn btn-sm btn-primary" id="btn-yara-run-all">Run all rules</button>
+                        <button class="btn btn-sm" id="btn-yara-run-selected" type="button" title="Run only the rule currently selected from Example Rules">Run selected rule</button>
                         <button class="btn btn-sm" id="btn-yara-scan">Scan Memory</button>
                         <button class="btn btn-sm" id="btn-yara-clear">Clear</button>
                         <label class="btn btn-sm btn-file-label" title="Load .yar file">
                             Load File
                             <input type="file" id="yara-file-input" accept=".yar,.yara,.txt" style="display:none">
                         </label>
+                        <input type="text" id="yara-rule-search" class="yara-rule-search" placeholder="Search rules..." title="Filter rules by name" autocomplete="off">
                         <select id="yara-example-select" class="yara-example-select">
                             <option value="">-- Example Rules --</option>
                             <option value="hello_world">Hello World strings</option>
@@ -453,7 +455,9 @@
                             <option value="stack_pivot">Stack pivot gadgets</option>
                             <option value="syscall_int80">Linux syscall (int 0x80 / syscall)</option>
                             <option value="all_examples">Load all examples</option>
+                            <optgroup id="yara-forge-optgroup" label="YARA-Forge"></optgroup>
                         </select>
+                        <button class="btn btn-sm" id="btn-yara-fetch-forge" type="button" title="Download and parse YARA-Forge rules from server">Fetch YARA-Forge rules</button>
                         <label class="yara-pe-on-load" title="When a PE/EXE/DLL is loaded, run YARA with PE indicators and show results">
                             <input type="checkbox" id="pe-yara-on-load">
                             <span>Scan with YARA on PE load</span>
