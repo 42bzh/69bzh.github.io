@@ -716,6 +716,7 @@ function formatSize(n) {
 let _fileInfo = null; // { name, size, arch, type, sha256 }
 let _fileInfoPopup = null;
 let _lastPeStructure = null; // Parsed PE for at-a-glance summary (set when loading PE)
+let _lastElfStructure = null; // Parsed ELF for at-a-glance summary (set when loading ELF)
 
 async function updateFileInfoBadge(name, bytes) {
     const elf = isElf(bytes);
@@ -747,6 +748,14 @@ function buildPeSummaryHtml(data) {
         html += '</pre></div>';
     }
     if (data.sections && data.sections.length > 0) {
+        let maxEntropy = 0;
+        for (const s of data.sections) {
+            if (s.entropy != null) {
+                const e = parseFloat(s.entropy);
+                if (!Number.isNaN(e)) maxEntropy = Math.max(maxEntropy, e);
+            }
+        }
+        html += '<div class="pe-summary-section"><strong>Entropy</strong> Max section: <span class="mono">' + (maxEntropy > 0 ? maxEntropy.toFixed(2) + ' bits' : '—') + '</span></div>';
         html += '<div class="pe-summary-section"><strong>Sections</strong> (' + data.sections.length + ')<table class="pe-summary-table"><thead><tr><th>Name</th><th>VAddr</th><th>Size</th><th>Entropy</th><th>Chars</th></tr></thead><tbody>';
         const maxSections = 8;
         for (let i = 0; i < Math.min(data.sections.length, maxSections); i++) {
@@ -778,8 +787,14 @@ function buildPeSummaryHtml(data) {
         html += '</ul></div>';
     }
     html += '<div class="pe-summary-section"><strong>Version / resources</strong><span class="muted">—</span></div>';
+    if (data.security) {
+        const dep = data.security.dep_nx ? '<span class="pe-sig-present">Yes (DEP/NX)</span>' : '<span class="pe-sig-absent">No</span>';
+        const aslr = data.security.aslr ? '<span class="pe-sig-present">Yes (ASLR)</span>' : '<span class="pe-sig-absent">No</span>';
+        html += '<div class="pe-summary-section"><strong>Security &amp; hardening</strong><ul class="pe-summary-list">';
+        html += '<li>DEP (NX): ' + dep + '</li><li>ASLR: ' + aslr + '</li></ul></div>';
+    }
     const sigText = data.signature_present ? '<span class="pe-sig-present">Present</span>' : '<span class="pe-sig-absent">Absent</span>';
-    html += '<div class="pe-summary-section"><strong>Digital signature</strong>' + sigText + '</div>';
+    html += '<div class="pe-summary-section"><strong>Code signing</strong>' + sigText + '</div>';
     if (data.risk) {
         const r = data.risk;
         const scoreClass = r.score >= 75 ? 'pe-risk-high' : r.score >= 50 ? 'pe-risk-medium' : r.score >= 25 ? 'pe-risk-low' : 'pe-risk-none';
@@ -796,16 +811,66 @@ function buildPeSummaryHtml(data) {
     return html;
 }
 
+function buildElfSummaryHtml(data) {
+    if (!data || !data.header) return '';
+    const h = data.header;
+    let html = '<div class="pe-summary-block"><span class="pe-summary-title">ELF at a glance</span><div class="pe-summary-body">';
+    html += '<div class="pe-summary-section"><strong>Header</strong><pre class="pe-summary-pre">';
+    html += `Class:   ${escapeHtml(h.class)}\nData:    ${escapeHtml(h.data)}\nType:    ${escapeHtml(h.e_type)}\nMachine: ${escapeHtml(h.e_machine)}\nEntry:   ${escapeHtml(h.entry)}`;
+    html += '</pre></div>';
+    const sec = data.security;
+    const pieFromType = (h.e_type || '').indexOf('ET_DYN') !== -1;
+    const pieStr = sec ? (sec.pie ? '<span class="pe-sig-present">Yes</span>' : '<span class="pe-sig-absent">No</span>') : (pieFromType ? '<span class="pe-sig-present">Yes</span>' : '<span class="pe-sig-absent">No</span>');
+    const nxStr = sec ? (sec.nx ? '<span class="pe-sig-present">Yes</span>' : '<span class="pe-sig-absent">No</span>') : '<span class="muted">—</span>';
+    const relroStr = sec ? escapeHtml(sec.relro || 'No') : '<span class="muted">—</span>';
+    const canaryStr = sec ? (sec.canary ? '<span class="pe-sig-present">Yes</span>' : '<span class="pe-sig-absent">No</span>') : '<span class="muted">—</span>';
+    const fortifyStr = sec ? (sec.fortify ? '<span class="pe-sig-present">Yes</span>' : '<span class="pe-sig-absent">No</span>') : '<span class="muted">—</span>';
+    html += '<div class="pe-summary-section"><strong>Security &amp; hardening</strong><ul class="pe-summary-list">';
+    html += '<li>PIE: ' + pieStr + '</li><li>RELRO: ' + relroStr + '</li><li>NX: ' + nxStr + '</li>';
+    html += '<li>Canary: ' + canaryStr + '</li><li>Fortify: ' + fortifyStr + '</li></ul></div>';
+    if (data.needed_libs && data.needed_libs.length > 0) {
+        html += '<div class="pe-summary-section"><strong>Imported symbols</strong> (' + data.needed_libs.length + ' NEEDED)<ul class="pe-summary-list">';
+        for (let i = 0; i < Math.min(data.needed_libs.length, 8); i++) {
+            html += '<li>' + escapeHtml(data.needed_libs[i]) + '</li>';
+        }
+        if (data.needed_libs.length > 8) html += '<li class="muted">… and ' + (data.needed_libs.length - 8) + ' more</li>';
+        html += '</ul></div>';
+    } else {
+        html += '<div class="pe-summary-section"><strong>Imported symbols</strong><span class="muted">' + (data.needed_libs ? '0 NEEDED' : '—') + '</span></div>';
+    }
+    html += '<div class="pe-summary-section"><strong>Code signing</strong><span class="muted">N/A (ELF)</span></div>';
+    if (data.section_headers && data.section_headers.length > 0) {
+        let maxEntropy = 0;
+        for (const sh of data.section_headers) {
+            if (sh.entropy != null) {
+                const e = parseFloat(sh.entropy);
+                if (!Number.isNaN(e)) maxEntropy = Math.max(maxEntropy, e);
+            }
+        }
+        html += '<div class="pe-summary-section"><strong>Entropy</strong> Max section: <span class="mono">' + (maxEntropy > 0 ? maxEntropy.toFixed(2) + ' bits' : '—') + '</span></div>';
+    }
+    html += '</div></div>';
+    return html;
+}
+
 function showFileInfoPopup() {
     if (!_fileInfo) return;
     removeFileInfoPopup();
     const fi = _fileInfo;
     let peData = _lastPeStructure;
-    if ((fi.type || '').includes('PE') && !peData && elfBytes && isPe(elfBytes)) {
+    let elfData = _lastElfStructure;
+    if (elfBytes && isPe(elfBytes) && !peData) {
         try {
             const json = parse_pe_structure(elfBytes);
             peData = JSON.parse(json);
             _lastPeStructure = peData;
+        } catch (_) {}
+    }
+    if (elfBytes && isElf(elfBytes) && !elfData) {
+        try {
+            const json = parse_elf_structure(elfBytes);
+            elfData = JSON.parse(json);
+            _lastElfStructure = elfData;
         } catch (_) {}
     }
     const div = document.createElement('div');
@@ -822,6 +887,7 @@ function showFileInfoPopup() {
         inner += `<div class="fi-row"><span class="fi-label">VirusTotal</span><span class="fi-value"><a href="${vtUrl}" target="_blank" rel="noopener noreferrer">Search by SHA-256</a></span></div>`;
     }
     if (peData) inner += buildPeSummaryHtml(peData);
+    if (elfData) inner += buildElfSummaryHtml(elfData);
     div.innerHTML = inner;
     const rect = fileName.getBoundingClientRect();
     div.style.top = (rect.bottom + 6) + 'px';
@@ -957,6 +1023,7 @@ function createEmulator(bytes, opts = {}) {
             elfFunctions = [];
             renderFunctions();
         } else if (opts.asPe) {
+            _lastElfStructure = null;
             if (elfTitleEl) elfTitleEl.textContent = 'PE structure';
             try {
                 const json = parse_pe_structure(bytes);
@@ -984,6 +1051,7 @@ function createEmulator(bytes, opts = {}) {
             try {
                 const json = parse_elf_structure(bytes);
                 const data = JSON.parse(json);
+                _lastElfStructure = data;
                 renderElfStructure(data);
                 elfFunctions = data.functions || [];
                 renderFunctions();
@@ -1551,6 +1619,7 @@ function resetSession() {
     xrefTotal = -1;
     _fileInfo = null;
     _lastPeStructure = null;
+    _lastElfStructure = null;
     removeFileInfoPopup();
     _statusKey = 'statusIdle';
     _statusCls = '';
@@ -2958,6 +3027,7 @@ function renderElfStructure(data) {
         return;
     }
     let html = '';
+    html += '<div class="pe-at-a-glance">' + buildElfSummaryHtml(data) + '</div>';
     if (data.header) {
         html += '<div class="elf-section"><span class="elf-section-title">ELF Header</span><pre class="elf-header-pre">';
         const h = data.header;
