@@ -2421,6 +2421,33 @@ footer .footer-beta {
     padding-bottom: 0.2rem;
 }
 .help-section p { color: var(--text); margin-bottom: 0.3rem; }
+.summary-partner-links {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+.summary-partner-link {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    opacity: 0.9;
+    transition: opacity 0.2s ease, transform 0.15s ease;
+}
+.summary-partner-link:hover {
+    opacity: 1;
+    transform: scale(1.05);
+}
+.summary-partner-img {
+    display: block;
+    height: 2.75rem;
+    width: auto;
+    object-fit: contain;
+}
 .help-lead { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
 .help-steps {
     list-style: decimal;
