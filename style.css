@@ -92,6 +92,73 @@
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 30%, #1e1b4b 70%, #1a1a2e 100%);
 }
 
+/* Nyan Cat theme — space + rainbow 🌌🐱🌈 */
+:root[data-theme="nyan"] {
+    --bg: #0f0c1a;
+    --surface: #1a1530;
+    --surface-2: #251e40;
+    --border: #4a3f6b;
+    --text: #e8e4f0;
+    --text-muted: #a78bfa;
+    --accent: #f472b6;
+    --accent-hover: #fb7185;
+    --green: #34d399;
+    --red: #f87171;
+    --yellow: #fde047;
+    --yellow-dark: #facc15;
+    --yellow-bright: #fef08a;
+    --orange: #fb923c;
+    --purple: #c084fc;
+}
+
+:root[data-theme="nyan"] body {
+    background: linear-gradient(180deg, #0f0c1a 0%, #1a1530 50%, #0f0c1a 100%);
+}
+
+/* Nyan cat run overlay — fixed, full viewport, above content */
+.nyan-cat-container {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    pointer-events: none;
+    overflow: hidden;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+}
+
+.nyan-cat-container.nyan-cat-visible {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.3s ease, visibility 0s;
+}
+
+.nyan-cat-run {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    left: -280px;
+    will-change: left;
+}
+
+.nyan-cat-container.nyan-cat-visible .nyan-cat-run {
+    animation: nyan-cat-run 4.5s linear forwards;
+}
+
+.nyan-cat-gif {
+    display: block;
+    width: 256px;
+    height: auto;
+    max-height: 128px;
+    object-fit: contain;
+    filter: drop-shadow(0 0 12px rgba(244, 114, 182, 0.4));
+}
+
+@keyframes nyan-cat-run {
+    0% { left: -280px; }
+    100% { left: 100%; }
+}
+
 html {
     font-size: 14px;
 }

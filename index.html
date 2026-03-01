@@ -7,6 +7,12 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- Nyan cat run overlay (shown when theme is Nyan Cat) -->
+    <div id="nyan-cat-container" class="nyan-cat-container" aria-hidden="true">
+        <div class="nyan-cat-run">
+            <img src="nyan-cat.gif" alt="" class="nyan-cat-gif" width="256" height="128">
+        </div>
+    </div>
     <header>
         <div class="header-brand">
             <a href="#" class="header-logo" title="binb" aria-label="binb">
@@ -23,6 +29,7 @@
                 <option value="light">Light</option>
                 <option value="unicorn">🦄 Unicorn</option>
                 <option value="rainbow">🌈 Rainbow</option>
+                <option value="nyan">🐱 Nyan Cat</option>
             </select>
             <select id="lang-select" class="lang-select" title="Language" aria-label="Language">
                 <option value="en">English</option>

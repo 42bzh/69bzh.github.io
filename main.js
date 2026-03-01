@@ -337,12 +337,31 @@ function setupSummaryModal() {
     });
 }
 
-function applyTheme(theme) {
-    const v = ['dark', 'light', 'unicorn', 'rainbow'].includes(theme) ? theme : 'dark';
+function applyTheme(theme, options) {
+    const opts = options || {};
+    const v = ['dark', 'light', 'unicorn', 'rainbow', 'nyan'].includes(theme) ? theme : 'dark';
     document.documentElement.setAttribute('data-theme', v);
     try { localStorage.setItem('binb-theme', v); } catch (_) {}
     const themeSelect = document.getElementById('theme-select');
     if (themeSelect) themeSelect.value = v;
+
+    if (v === 'nyan' && opts.playNyan !== false) {
+        playNyanCatRun();
+    }
+}
+
+function playNyanCatRun() {
+    const container = document.getElementById('nyan-cat-container');
+    if (!container) return;
+    const run = container.querySelector('.nyan-cat-run');
+    if (!run) return;
+    run.style.animation = 'none';
+    run.offsetHeight;
+    container.classList.add('nyan-cat-visible');
+    run.style.animation = '';
+    setTimeout(() => {
+        container.classList.remove('nyan-cat-visible');
+    }, 4800);
 }
 
 function setupI18n() {
@@ -352,15 +371,17 @@ function setupI18n() {
     if (themeSelect) {
         try {
             const saved = localStorage.getItem('binb-theme');
-            if (['dark', 'light', 'unicorn', 'rainbow'].includes(saved)) {
-                applyTheme(saved);
+            if (['dark', 'light', 'unicorn', 'rainbow', 'nyan'].includes(saved)) {
+                applyTheme(saved, { playNyan: false });
             } else {
                 themeSelect.value = 'dark';
             }
         } catch (_) {
             themeSelect.value = 'dark';
         }
-        themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
+        themeSelect.addEventListener('change', () => {
+            applyTheme(themeSelect.value);
+        });
     }
     const langSelect = document.getElementById('lang-select');
     if (langSelect) {
