@@ -338,7 +338,7 @@ function setupSummaryModal() {
 }
 
 function applyTheme(theme) {
-    const v = theme === 'light' ? 'light' : 'dark';
+    const v = ['dark', 'light', 'unicorn', 'rainbow'].includes(theme) ? theme : 'dark';
     document.documentElement.setAttribute('data-theme', v);
     try { localStorage.setItem('binb-theme', v); } catch (_) {}
     const themeSelect = document.getElementById('theme-select');
@@ -352,7 +352,7 @@ function setupI18n() {
     if (themeSelect) {
         try {
             const saved = localStorage.getItem('binb-theme');
-            if (saved === 'light' || saved === 'dark') {
+            if (['dark', 'light', 'unicorn', 'rainbow'].includes(saved)) {
                 applyTheme(saved);
             } else {
                 themeSelect.value = 'dark';

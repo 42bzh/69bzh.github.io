@@ -49,6 +49,49 @@
     --purple: #553c9a;
 }
 
+/* Unicorn theme — soft pastels, magical ✨ */
+:root[data-theme="unicorn"] {
+    --bg: #fff5f8;
+    --surface: #ffe8f0;
+    --surface-2: #fce4ec;
+    --border: #f8bbd9;
+    --text: #4a1942;
+    --text-muted: #880e4f;
+    --accent: #c2185b;
+    --accent-hover: #ad1457;
+    --green: #66bb6a;
+    --red: #ec407a;
+    --yellow: #ffb74d;
+    --yellow-dark: #ff8f00;
+    --yellow-bright: #ffcc80;
+    --orange: #ff7043;
+    --purple: #ba68c8;
+}
+
+/* Rainbow theme — vivid and cheerful 🌈 */
+:root[data-theme="rainbow"] {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface-2: #1f3460;
+    --border: #533483;
+    --text: #e8e0f0;
+    --text-muted: #a78bfa;
+    --accent: #22d3ee;
+    --accent-hover: #67e8f9;
+    --green: #4ade80;
+    --red: #f87171;
+    --yellow: #fde047;
+    --yellow-dark: #eab308;
+    --yellow-bright: #fef08a;
+    --orange: #fb923c;
+    --purple: #c084fc;
+}
+
+/* Rainbow theme: subtle gradient on body for extra flair */
+:root[data-theme="rainbow"] body {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 30%, #1e1b4b 70%, #1a1a2e 100%);
+}
+
 html {
     font-size: 14px;
 }
