@@ -456,7 +456,7 @@
                 <div class="tab-content" id="yara-tab">
                     <div class="yara-controls">
                         <button class="btn btn-sm btn-primary" id="btn-yara-run-all">Run all rules</button>
-                        <button class="btn btn-sm" id="btn-yara-run-selected" type="button" title="Run only the rule currently selected from Example Rules">Run selected rule</button>
+                        <button class="btn btn-sm" id="btn-yara-run-selected" type="button" title="Run the rule(s) currently in the editor">Run selected rule</button>
                         <button class="btn btn-sm" id="btn-yara-scan">Scan Memory</button>
                         <button class="btn btn-sm" id="btn-yara-clear">Clear</button>
                         <label class="btn btn-sm btn-file-label" title="Load .yar file">
@@ -481,6 +481,10 @@
                             <span>Scan with YARA on PE load</span>
                         </label>
                         <span class="yara-status" id="yara-status"></span>
+                        <div class="yara-progress-wrap" id="yara-progress-wrap" aria-hidden="true">
+                            <div class="yara-progress-bar" id="yara-progress-bar"></div>
+                            <span class="yara-progress-text" id="yara-progress-text"></span>
+                        </div>
                     </div>
                     <div class="yara-split">
                         <div class="yara-editor-wrap">
@@ -546,6 +550,8 @@
                     <button class="tab-btn" data-tab="stack-tab" data-i18n="tabStack">Stack</button>
                     <button class="tab-btn" data-tab="bp-tab" data-i18n="tabBp">Breakpoints</button>
                     <button class="tab-btn" data-tab="watch-tab" data-i18n="tabWatch">Watch</button>
+                    <button class="tab-btn" data-tab="bookmarks-tab" data-i18n="tabBookmarks">Bookmarks</button>
+                    <button class="tab-btn" data-tab="comments-tab" data-i18n="tabComments">Comments</button>
                     <button class="tab-btn" data-tab="history-tab" data-i18n="tabHistory">History</button>
                     <button class="tab-btn" data-tab="xrefs-tab" data-i18n="tabXrefs">XREFs</button>
                     <button class="tab-btn" data-tab="vfs-tab" data-i18n="tabVfs">VFS</button>
@@ -618,6 +624,16 @@
                     </div>
                     <div class="watch-list" id="watch-list">
                         <div class="muted" data-i18n="watchHelp">Track data addresses to see all reads/writes across execution. Use j/k to navigate invocations, J/K for data accesses.</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="bookmarks-tab">
+                    <div class="annot-list annot-bookmarks-list" id="bookmarks-list">
+                        <div class="muted annot-list-empty" data-i18n="annotNoBookmarks">No bookmarks. Right-click an address in Disassembly or Memory to add a label.</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="comments-tab">
+                    <div class="annot-list annot-comments-list" id="comments-list">
+                        <div class="muted annot-list-empty" data-i18n="annotNoComments">No comments. Right-click an address in Disassembly or Memory to add a comment.</div>
                     </div>
                 </div>
                 <div class="tab-content" id="history-tab">
@@ -757,6 +773,14 @@
         }
     })();
     </script>
+
+    <!-- Right-click context menu for bookmarks / comments (disassembly & memory) -->
+    <div id="annotation-context-menu" class="annotation-context-menu" role="menu" aria-hidden="true">
+        <button type="button" class="annotation-menu-item" data-action="bookmark-add" data-i18n="annotBookmark">Add bookmark (label)</button>
+        <button type="button" class="annotation-menu-item" data-action="bookmark-remove" data-i18n="annotBookmarkRemove">Remove bookmark</button>
+        <button type="button" class="annotation-menu-item" data-action="comment-add" data-i18n="annotComment">Add comment</button>
+        <button type="button" class="annotation-menu-item" data-action="comment-remove" data-i18n="annotCommentRemove">Remove comment</button>
+    </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
     <script type="module" src="main.js"></script>

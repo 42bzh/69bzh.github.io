@@ -237,6 +237,8 @@ const watchAddrInput = document.getElementById('watch-addr');
 const watchSizeInput = document.getElementById('watch-size');
 const btnWatchAdd   = document.getElementById('btn-watch-add');
 const watchListEl   = document.getElementById('watch-list');
+const bookmarksListEl = document.getElementById('bookmarks-list');
+const commentsListEl = document.getElementById('comments-list');
 const regionHistoryPlaceholder = document.getElementById('region-history-placeholder');
 const regionHistoryTable = document.getElementById('region-history-table');
 const regionHistoryTbody = document.getElementById('region-history-tbody');
@@ -956,6 +958,7 @@ function hideShellcodeFilePrompt() {
  * @param {{ asShellcode?: boolean, arch?: string }} [opts] - If asShellcode is true, arch must be 'x86_64' or 'arm64'.
  */
 function createEmulator(bytes, opts = {}) {
+    clearAnnotations();
     try {
         if (opts.asShellcode && opts.arch) {
             console.log(`[binb] creating emulator from shellcode (${bytes.length} bytes), arch=${opts.arch}`);
@@ -1775,8 +1778,10 @@ function resetSession() {
     if (yaraStatus) yaraStatus.textContent = '';
     if (yaraMatchCount) yaraMatchCount.textContent = '';
     if (yaraSummary) yaraSummary.textContent = '';
+    if (yaraProgressWrap) yaraProgressWrap.setAttribute('aria-hidden', 'true');
     _lastSelectedRuleSource = '';
     _lastSelectedRuleName = '';
+    clearAnnotations();
 
     // Assembly tab
     if (asmEditor) asmEditor.value = '';
@@ -1798,13 +1803,26 @@ btnReset.addEventListener('click', () => {
     resetSession();
 });
 
-// ── Snapshot & Restore ──────────────────────────────────────────────────────
+// ── Snapshot & Restore (includes bookmarks/comments) ──────────────────────────
 
-btnSaveSnapshot.addEventListener('click', () => {
+const SNAPSHOT_MAGIC = new Uint8Array([0x42, 0x49, 0x4E, 0x42]); // "BINB"
+
+function saveSnapshotWithAnnotations() {
     if (!emulator) return;
     try {
-        const data = emulator.save_snapshot();
-        const blob = new Blob([data], { type: 'application/octet-stream' });
+        const vmData = emulator.save_snapshot();
+        const annotations = { bookmarks: getBookmarks(), comments: getComments() };
+        const jsonStr = JSON.stringify(annotations);
+        const jsonBytes = new TextEncoder().encode(jsonStr);
+        const totalLen = SNAPSHOT_MAGIC.length + 4 + jsonBytes.length + vmData.length;
+        const out = new Uint8Array(totalLen);
+        let off = 0;
+        out.set(SNAPSHOT_MAGIC, off); off += 4;
+        const view = new DataView(out.buffer);
+        view.setUint32(off, jsonBytes.length, true); off += 4;
+        out.set(jsonBytes, off); off += jsonBytes.length;
+        out.set(vmData, off);
+        const blob = new Blob([out], { type: 'application/octet-stream' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -1814,11 +1832,34 @@ btnSaveSnapshot.addEventListener('click', () => {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        appendTerminal(`\n[Snapshot saved: ${(data.byteLength / 1024).toFixed(1)} KB]`, 'info');
+        appendTerminal(`\n[Snapshot saved: ${(out.length / 1024).toFixed(1)} KB (VM + annotations)]`, 'info');
     } catch (err) {
         appendTerminal(`\nSnapshot save error: ${err.message || err}`, 'error');
     }
-});
+}
+
+function loadSnapshotWithAnnotations(data) {
+    if (data.length < 8) return { snapshot: data };
+    const magicOk = SNAPSHOT_MAGIC.every((b, i) => data[i] === b);
+    if (!magicOk) return { snapshot: data };
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const jsonLen = view.getUint32(4, true);
+    if (jsonLen <= 0 || 8 + jsonLen > data.length) return { snapshot: data };
+    try {
+        const jsonBytes = data.subarray(8, 8 + jsonLen);
+        const jsonStr = new TextDecoder().decode(jsonBytes);
+        const annotations = JSON.parse(jsonStr);
+        setBookmarks(annotations.bookmarks || {});
+        setComments(annotations.comments || {});
+        if (typeof renderBookmarksList === 'function') renderBookmarksList();
+        if (typeof renderCommentsList === 'function') renderCommentsList();
+        return { snapshot: data.subarray(8 + jsonLen) };
+    } catch (_) {
+        return { snapshot: data };
+    }
+}
+
+btnSaveSnapshot.addEventListener('click', () => saveSnapshotWithAnnotations());
 
 btnLoadSnapshot.addEventListener('click', () => snapshotUpload.click());
 snapshotUpload.addEventListener('change', async (e) => {
@@ -1829,16 +1870,17 @@ snapshotUpload.addEventListener('change', async (e) => {
         const buf = await file.arrayBuffer();
         const data = new Uint8Array(buf);
         if (!emulator) {
-            // Create a minimal emulator if none exists — we'll overwrite state via snapshot
             appendTerminal('\n[No emulator loaded — please load a binary first, then restore snapshot]', 'error');
             return;
         }
-        emulator.load_snapshot(data);
-        appendTerminal(`\n[Snapshot restored from ${file.name}: ${(data.byteLength / 1024).toFixed(1)} KB]`, 'info');
+        const { snapshot } = loadSnapshotWithAnnotations(data);
+        emulator.load_snapshot(snapshot);
+        appendTerminal(`\n[Snapshot restored from ${file.name}: ${(snapshot.length / 1024).toFixed(1)} KB]`, 'info');
         setStatus('statusPaused', 'paused');
         enableButtons(true);
         updateFullUI();
         renderBreakpoints();
+        if (typeof renderDisasm === 'function') renderDisasm();
     } catch (err) {
         appendTerminal(`\nSnapshot load error: ${err.message || err}`, 'error');
     }
@@ -1936,11 +1978,12 @@ memoryDump.addEventListener('click', (e) => {
 });
 
 memoryDump.addEventListener('contextmenu', (e) => {
-    const span = e.target.closest('.mem-byte[data-addr]');
+    const span = e.target.closest('.mem-byte[data-addr], .mem-addr-col[data-addr]');
     if (!span) return;
     e.preventDefault();
+    e.stopPropagation();
     const addr = parseInt(span.dataset.addr, 10);
-    if (!isNaN(addr)) window._setMemBreakpoint(addr);
+    if (!isNaN(addr)) showAnnotationContextMenu(e.clientX, e.clientY, addr, { includeBreakpoint: true });
 });
 
 // Stdin prompt: when program does read(0) and no data, we show this; user types and Send continues.
@@ -2042,6 +2085,268 @@ if (bpAnySyscall) bpAnySyscall.addEventListener('change', () => {
         e.preventDefault();
         startResize(resizerRight, '--col-right', 180, 700);
     });
+})();
+
+// ── Annotations (bookmarks / labels, comments) ─────────────────────────────
+const ANNOTATIONS_KEY_BOOKMARKS = 'binb_bookmarks';
+const ANNOTATIONS_KEY_COMMENTS = 'binb_comments';
+
+function annotationAddrToKey(addr) {
+    const n = Number(addr);
+    if (isNaN(n)) return null;
+    return '0x' + (n >>> 0).toString(16);
+}
+
+function getBookmarks() {
+    try {
+        return JSON.parse(localStorage.getItem(ANNOTATIONS_KEY_BOOKMARKS) || '{}');
+    } catch (_) {
+        return {};
+    }
+}
+
+function getComments() {
+    try {
+        return JSON.parse(localStorage.getItem(ANNOTATIONS_KEY_COMMENTS) || '{}');
+    } catch (_) {
+        return {};
+    }
+}
+
+function setBookmark(addr, label) {
+    const key = annotationAddrToKey(addr);
+    if (!key) return;
+    const b = getBookmarks();
+    if (label.trim()) b[key] = label.trim(); else delete b[key];
+    try { localStorage.setItem(ANNOTATIONS_KEY_BOOKMARKS, JSON.stringify(b)); } catch (_) {}
+}
+
+function setComment(addr, comment) {
+    const key = annotationAddrToKey(addr);
+    if (!key) return;
+    const c = getComments();
+    if (comment.trim()) c[key] = comment.trim(); else delete c[key];
+    try { localStorage.setItem(ANNOTATIONS_KEY_COMMENTS, JSON.stringify(c)); } catch (_) {}
+}
+
+function removeBookmark(addr) {
+    const key = annotationAddrToKey(addr);
+    if (!key) return;
+    const b = getBookmarks();
+    delete b[key];
+    try { localStorage.setItem(ANNOTATIONS_KEY_BOOKMARKS, JSON.stringify(b)); } catch (_) {}
+}
+
+function removeComment(addr) {
+    const key = annotationAddrToKey(addr);
+    if (!key) return;
+    const c = getComments();
+    delete c[key];
+    try { localStorage.setItem(ANNOTATIONS_KEY_COMMENTS, JSON.stringify(c)); } catch (_) {}
+}
+
+function setBookmarks(obj) {
+    try {
+        localStorage.setItem(ANNOTATIONS_KEY_BOOKMARKS, JSON.stringify(obj || {}));
+    } catch (_) {}
+}
+
+function setComments(obj) {
+    try {
+        localStorage.setItem(ANNOTATIONS_KEY_COMMENTS, JSON.stringify(obj || {}));
+    } catch (_) {}
+}
+
+/** Clear bookmarks and comments from localStorage (e.g. when loading a new binary). */
+function clearAnnotations() {
+    setBookmarks({});
+    setComments({});
+    if (typeof renderBookmarksList === 'function') renderBookmarksList();
+    if (typeof renderCommentsList === 'function') renderCommentsList();
+}
+
+function renderBookmarksList() {
+    if (!bookmarksListEl) return;
+    const bookmarks = getBookmarks();
+    const entries = Object.entries(bookmarks).filter(([_, label]) => label != null && String(label).trim() !== '');
+    if (entries.length === 0) {
+        bookmarksListEl.innerHTML = '<div class="muted annot-list-empty">' + (typeof t === 'function' ? t('annotNoBookmarks') : 'No bookmarks. Right-click an address in Disassembly or Memory to add a label.') + '</div>';
+        return;
+    }
+    entries.sort((a, b) => {
+        const na = parseInt(a[0], 16);
+        const nb = parseInt(b[0], 16);
+        return (na >>> 0) - (nb >>> 0);
+    });
+    let html = '';
+    for (const [addrKey, label] of entries) {
+        const addrNum = parseInt(addrKey, 16);
+        if (isNaN(addrNum)) continue;
+        html += `<div class="annot-entry" data-addr="${addrNum}" title="Go to address">`;
+        html += `<span class="annot-entry-addr">${addrKey}</span>`;
+        html += `<span class="annot-entry-label">${escapeHtml(String(label))}</span>`;
+        html += '</div>';
+    }
+    bookmarksListEl.innerHTML = html;
+    bookmarksListEl.querySelectorAll('.annot-entry').forEach(el => {
+        el.addEventListener('click', () => {
+            const addr = parseInt(el.dataset.addr, 10);
+            if (!isNaN(addr)) {
+                if (typeof navigateDisasmTo === 'function') navigateDisasmTo(addr);
+                if (memAddr) memAddr.value = '0x' + (addr >>> 0).toString(16);
+                if (typeof refreshMemory === 'function') refreshMemory();
+            }
+        });
+    });
+}
+
+function renderCommentsList() {
+    if (!commentsListEl) return;
+    const comments = getComments();
+    const entries = Object.entries(comments).filter(([_, text]) => text != null && String(text).trim() !== '');
+    if (entries.length === 0) {
+        commentsListEl.innerHTML = '<div class="muted annot-list-empty">' + (typeof t === 'function' ? t('annotNoComments') : 'No comments. Right-click an address in Disassembly or Memory to add a comment.') + '</div>';
+        return;
+    }
+    entries.sort((a, b) => {
+        const na = parseInt(a[0], 16);
+        const nb = parseInt(b[0], 16);
+        return (na >>> 0) - (nb >>> 0);
+    });
+    let html = '';
+    for (const [addrKey, text] of entries) {
+        const addrNum = parseInt(addrKey, 16);
+        if (isNaN(addrNum)) continue;
+        html += `<div class="annot-entry" data-addr="${addrNum}" title="Go to address">`;
+        html += `<span class="annot-entry-addr">${addrKey}</span>`;
+        html += `<span class="annot-entry-comment">${escapeHtml(String(text))}</span>`;
+        html += '</div>';
+    }
+    commentsListEl.innerHTML = html;
+    commentsListEl.querySelectorAll('.annot-entry').forEach(el => {
+        el.addEventListener('click', () => {
+            const addr = parseInt(el.dataset.addr, 10);
+            if (!isNaN(addr)) {
+                if (typeof navigateDisasmTo === 'function') navigateDisasmTo(addr);
+                if (memAddr) memAddr.value = '0x' + (addr >>> 0).toString(16);
+                if (typeof refreshMemory === 'function') refreshMemory();
+            }
+        });
+    });
+}
+
+let _annotationContextAddr = null;
+const annotationContextMenu = document.getElementById('annotation-context-menu');
+
+function showAnnotationContextMenu(x, y, addr, opts) {
+    if (!annotationContextMenu) return;
+    _annotationContextAddr = addr;
+    const key = annotationAddrToKey(addr);
+    const bookmarks = getBookmarks();
+    const comments = getComments();
+    const hasBookmark = key && bookmarks[key];
+    const hasComment = key && comments[key];
+
+    annotationContextMenu.querySelector('[data-action="bookmark-add"]').textContent = hasBookmark ? t('annotBookmarkEdit') : t('annotBookmark');
+    annotationContextMenu.querySelector('[data-action="bookmark-remove"]').hidden = !hasBookmark;
+    annotationContextMenu.querySelector('[data-action="comment-add"]').textContent = hasComment ? t('annotCommentEdit') : t('annotComment');
+    annotationContextMenu.querySelector('[data-action="comment-remove"]').hidden = !hasComment;
+
+    if (opts && opts.includeBreakpoint) {
+        let bpBtn = annotationContextMenu.querySelector('[data-action="breakpoint"]');
+        if (!bpBtn) {
+            bpBtn = document.createElement('button');
+            bpBtn.type = 'button';
+            bpBtn.className = 'annotation-menu-item';
+            bpBtn.dataset.action = 'breakpoint';
+            bpBtn.textContent = t('annotSetBreakpoint');
+            annotationContextMenu.insertBefore(bpBtn, annotationContextMenu.firstChild);
+        }
+        bpBtn.hidden = false;
+    } else {
+        const bpBtn = annotationContextMenu.querySelector('[data-action="breakpoint"]');
+        if (bpBtn) bpBtn.hidden = true;
+    }
+
+    annotationContextMenu.style.left = x + 'px';
+    annotationContextMenu.style.top = y + 'px';
+    annotationContextMenu.setAttribute('aria-hidden', 'false');
+}
+
+function hideAnnotationContextMenu() {
+    if (annotationContextMenu) {
+        annotationContextMenu.setAttribute('aria-hidden', 'true');
+    }
+    _annotationContextAddr = null;
+}
+
+function refreshDisasmAfterAnnotation() {
+    if (traceMode) {
+        if (typeof renderTraceDisasm === 'function') renderTraceDisasm(traceCursor);
+    } else {
+        if (typeof renderDisasm === 'function') renderDisasm();
+    }
+    if (typeof renderBookmarksList === 'function') renderBookmarksList();
+    if (typeof renderCommentsList === 'function') renderCommentsList();
+}
+
+(function setupAnnotationContextMenu() {
+    if (!annotationContextMenu) return;
+    document.addEventListener('click', () => hideAnnotationContextMenu());
+    document.addEventListener('contextmenu', () => hideAnnotationContextMenu());
+
+    if (disasmList) {
+        disasmList.addEventListener('contextmenu', (e) => {
+            const row = e.target.closest('.disasm-line, .disasm-annotation');
+            if (!row) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const addr = Number(row.dataset.addr);
+            if (!isNaN(addr)) showAnnotationContextMenu(e.clientX, e.clientY, addr, {});
+        });
+    }
+
+    annotationContextMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const btn = e.target.closest('.annotation-menu-item');
+        if (!btn || _annotationContextAddr == null) return;
+        const action = btn.dataset.action;
+        const key = annotationAddrToKey(_annotationContextAddr);
+        const addr = _annotationContextAddr;
+
+        if (action === 'breakpoint') {
+            if (typeof window._setMemBreakpoint === 'function') window._setMemBreakpoint(addr);
+            hideAnnotationContextMenu();
+            return;
+        }
+
+        if (action === 'bookmark-add') {
+            const bookmarks = getBookmarks();
+            const current = key ? bookmarks[key] : '';
+            const label = window.prompt('Bookmark (label) for ' + annotationAddrToKey(addr) + ':', current || '');
+            if (label !== null) {
+                setBookmark(addr, label);
+                refreshDisasmAfterAnnotation();
+            }
+        } else if (action === 'bookmark-remove') {
+            removeBookmark(addr);
+            refreshDisasmAfterAnnotation();
+        } else if (action === 'comment-add') {
+            const comments = getComments();
+            const current = key ? comments[key] : '';
+            const comment = window.prompt('Comment for ' + annotationAddrToKey(addr) + ':', current || '');
+            if (comment !== null) {
+                setComment(addr, comment);
+                refreshDisasmAfterAnnotation();
+            }
+        } else if (action === 'comment-remove') {
+            removeComment(addr);
+            refreshDisasmAfterAnnotation();
+        }
+        hideAnnotationContextMenu();
+    });
+    renderBookmarksList();
+    renderCommentsList();
 })();
 
 // Memory viewer
@@ -3989,17 +4294,25 @@ function renderDisasm() {
     const matchSet = new Set(disasmSearchMatches);
     const currentMatchLine = disasmSearchMatches.length > 0 && disasmSearchCurrentIndex >= 0 ? disasmSearchMatches[disasmSearchCurrentIndex] : -1;
     const visibleAddrs = new Set(instrs.map(instr => Number(instr.addr_num)));
+    const bookmarks = getBookmarks();
+    const comments = getComments();
 
     let html = '';
     let lastSrcLine = null; // track to show source annotation only on line change
     for (let i = 0; i < instrs.length; i++) {
         const instr = instrs[i];
         const addrNum = Number(instr.addr_num);
+        const addrKey = annotationAddrToKey(addrNum);
 
         // Insert function label at function entry points
         if (fnAddrMap.has(addrNum)) {
             html += `<div class="disasm-fn-header">${escapeHtml(fnAddrMap.get(addrNum))}:</div>`;
             lastSrcLine = null; // reset on function boundary
+        }
+
+        // User bookmark (label) for this address
+        if (addrKey && bookmarks[addrKey]) {
+            html += `<div class="disasm-annotation disasm-label" data-addr="${addrNum}">${escapeHtml(bookmarks[addrKey])}:</div>`;
         }
 
         // Insert XREF annotations (show who references this address)
@@ -4042,6 +4355,10 @@ function renderDisasm() {
             html += `<span class="disasm-arrow">&larr;</span>`;
         }
         html += `</div>`;
+        // User comment for this address
+        if (addrKey && comments[addrKey]) {
+            html += `<div class="disasm-annotation disasm-comment" data-addr="${addrNum}">; ${escapeHtml(comments[addrKey])}</div>`;
+        }
     }
 
     disasmList.innerHTML = html;
@@ -4599,15 +4916,21 @@ function renderTraceDisasm(traceIdx) {
     const currentMatchLine = disasmSearchMatches.length > 0 && disasmSearchCurrentIndex >= 0 ? disasmSearchMatches[disasmSearchCurrentIndex] : -1;
     const visibleAddrs = new Set(instrs.map(instr => Number(instr.addr_num)));
     const isSyscallAtCursor = emulator.get_trace_entry_is_syscall(traceIdx);
+    const bookmarks = getBookmarks();
+    const comments = getComments();
 
     let html = '';
     let lastSrcLine = null;
     for (let i = 0; i < instrs.length; i++) {
         const instr = instrs[i];
         const addrNum = Number(instr.addr_num);
+        const addrKey = annotationAddrToKey(addrNum);
         if (fnAddrMap.has(addrNum)) {
             html += `<div class="disasm-fn-header">${escapeHtml(fnAddrMap.get(addrNum))}:</div>`;
             lastSrcLine = null;
+        }
+        if (addrKey && bookmarks[addrKey]) {
+            html += `<div class="disasm-annotation disasm-label" data-addr="${addrNum}">${escapeHtml(bookmarks[addrKey])}:</div>`;
         }
         // Source line annotation (DWARF)
         const srcKey = instr.src_file ? `${instr.src_file}:${instr.src_line}` : null;
@@ -4638,6 +4961,9 @@ function renderTraceDisasm(traceIdx) {
             html += `<span class="disasm-arrow">&larr;</span>`;
         }
         html += `</div>`;
+        if (addrKey && comments[addrKey]) {
+            html += `<div class="disasm-annotation disasm-comment" data-addr="${addrNum}">; ${escapeHtml(comments[addrKey])}</div>`;
+        }
     }
 
     disasmList.innerHTML = html;
@@ -4917,25 +5243,14 @@ function renderMemoryMap() {
             memmapList.innerHTML = '<div class="muted">No memory mapped</div>';
             return;
         }
-        // Header
-        let html = '<div class="memmap-header">';
+        // Grid wrapper for aligned columns (header + rows)
+        let html = '<div class="memmap-grid">';
+        html += '<div class="memmap-header">';
         html += '<span class="memmap-col-addr">Address Range</span>';
         html += '<span class="memmap-col-size">Size</span>';
         html += '<span class="memmap-col-perms">Perms</span>';
         html += '<span class="memmap-col-entropy">Entropy</span>';
         html += '<span class="memmap-col-heatmap">Heatmap</span>';
-        html += '</div>';
-
-        // Entropy legend bar
-        html += '<div class="memmap-legend">';
-        html += '<span class="memmap-legend-label">0</span>';
-        html += '<div class="memmap-legend-bar">';
-        for (let i = 0; i <= 32; i++) {
-            const e = (i / 32) * 8;
-            html += `<span style="background:${entropyToColor(e)}"></span>`;
-        }
-        html += '</div>';
-        html += '<span class="memmap-legend-label">8 bits</span>';
         html += '</div>';
 
         for (const r of regions) {
@@ -4994,6 +5309,20 @@ function renderMemoryMap() {
             html += `<span class="memmap-col-heatmap memmap-heatmap">${heatmapCells}</span>`;
             html += `</div>`;
         }
+        html += '</div>'; // close memmap-grid
+
+        // Entropy legend bar
+        html += '<div class="memmap-legend">';
+        html += '<span class="memmap-legend-label">0</span>';
+        html += '<div class="memmap-legend-bar">';
+        for (let i = 0; i <= 32; i++) {
+            const e = (i / 32) * 8;
+            html += `<span style="background:${entropyToColor(e)}"></span>`;
+        }
+        html += '</div>';
+        html += '<span class="memmap-legend-label">8 bits</span>';
+        html += '</div>';
+
         memmapList.innerHTML = html;
     } catch (e) {
         memmapList.innerHTML = '<div class="muted">Error loading memory map</div>';
@@ -5223,6 +5552,9 @@ const yaraFileInput = document.getElementById('yara-file-input');
 const yaraExampleSelect = document.getElementById('yara-example-select');
 const yaraRuleSearch = document.getElementById('yara-rule-search');
 const btnYaraFetchForge = document.getElementById('btn-yara-fetch-forge');
+const yaraProgressWrap = document.getElementById('yara-progress-wrap');
+const yaraProgressBar = document.getElementById('yara-progress-bar');
+const yaraProgressText = document.getElementById('yara-progress-text');
 
 const YARA_FORGE_ZIP_URL = '/yara-forge-rules-full.zip';
 
@@ -5452,8 +5784,13 @@ rule pe_packer_sections {
 }`
 };
 
+/** Yield to the event loop so the UI can repaint (e.g. progress bar). */
+function yieldToUI() {
+    return new Promise(r => setTimeout(r, 0));
+}
+
 /** Run YARA scan with given rule source and render results. Runs each rule separately so parse errors in one rule don't block others. */
-function runYaraScanWithSource(source) {
+async function runYaraScanWithSource(source) {
     if (!emulator) return;
     const rulesSource = (typeof source === 'string' ? source : '').trim();
     if (!rulesSource) return;
@@ -5461,6 +5798,11 @@ function runYaraScanWithSource(source) {
     yaraResults.innerHTML = '';
     if (yaraMatchCount) yaraMatchCount.textContent = '';
     if (yaraSummary) yaraSummary.textContent = '';
+    if (yaraProgressWrap) {
+        yaraProgressWrap.setAttribute('aria-hidden', 'true');
+        if (yaraProgressBar) yaraProgressBar.style.setProperty('--yara-progress-pct', '0%');
+        if (yaraProgressText) yaraProgressText.textContent = '';
+    }
 
     const parsedRules = parseYaraRulesFromSource(rulesSource);
     const t0 = performance.now();
@@ -5483,11 +5825,18 @@ function runYaraScanWithSource(source) {
         }
     }
 
-    if (yaraStatus) yaraStatus.textContent = `Scanning ${parsedRules.length} rule(s)...`;
+    const total = parsedRules.length;
+    if (yaraStatus) yaraStatus.textContent = `Scanning 0/${total} rule(s)...`;
+    if (yaraProgressWrap) {
+        yaraProgressWrap.setAttribute('aria-hidden', 'false');
+        if (yaraProgressBar) yaraProgressBar.style.setProperty('--yara-progress-pct', '0%');
+        if (yaraProgressText) yaraProgressText.textContent = `0 / ${total}`;
+    }
     const allMatches = [];
     const skipped = [];
 
-    for (const r of parsedRules) {
+    for (let i = 0; i < parsedRules.length; i++) {
+        const r = parsedRules[i];
         try {
             const json = emulator.yara_scan(r.source);
             const matches = JSON.parse(json);
@@ -5497,8 +5846,18 @@ function runYaraScanWithSource(source) {
             skipped.push({ name: r.name, error: errMsg });
             console.warn(`[YARA] Rule "${r.name}" skipped:`, errMsg);
         }
+        const done = i + 1;
+        const pct = total > 0 ? (done / total) * 100 : 0;
+        if (yaraStatus) yaraStatus.textContent = `Scanning ${done}/${total}: ${r.name}...`;
+        if (yaraProgressBar) yaraProgressBar.style.setProperty('--yara-progress-pct', pct + '%');
+        if (yaraProgressText) yaraProgressText.textContent = `${done} / ${total}`;
+        await yieldToUI();
     }
 
+    if (yaraProgressWrap) {
+        yaraProgressWrap.setAttribute('aria-hidden', 'true');
+        if (yaraProgressBar) yaraProgressBar.style.setProperty('--yara-progress-pct', '100%');
+    }
     const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
     renderYaraResults(allMatches, elapsed, parsedRules.length, skipped);
 }
@@ -5612,12 +5971,13 @@ if (btnYaraRunSelected) {
             if (yaraStatus) yaraStatus.textContent = 'No binary loaded';
             return;
         }
-        if (!_lastSelectedRuleSource) {
-            if (yaraStatus) yaraStatus.textContent = 'Select a rule from Example Rules first, then click Run selected rule.';
+        const currentSource = yaraEditor ? yaraEditor.value.trim() : '';
+        if (!currentSource) {
+            if (yaraStatus) yaraStatus.textContent = 'Enter or load a rule in the editor, then click Run selected rule.';
             return;
         }
         if (_lastSelectedRuleName) console.log(`[YARA] Running selected rule: ${_lastSelectedRuleName}`);
-        runYaraScanWithSource(_lastSelectedRuleSource);
+        runYaraScanWithSource(currentSource);
     });
 }
 
@@ -5633,6 +5993,7 @@ if (btnYaraClear) {
         yaraStatus.textContent = '';
         if (yaraMatchCount) yaraMatchCount.textContent = '';
         if (yaraSummary) yaraSummary.textContent = '';
+        if (yaraProgressWrap) yaraProgressWrap.setAttribute('aria-hidden', 'true');
     });
 }
 
