@@ -2399,8 +2399,62 @@ footer .footer-beta {
 .file-info-popup .pe-summary-pre { font-size: 0.65rem; }
 
 .pe-sig-present { color: var(--green); font-weight: 600; }
+
+/* PE Resources viewer: icons, bitmaps, version text */
+.pe-resource-section {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+.pe-resource-section-title {
+    display: block;
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+    color: var(--text);
+}
+.pe-resource-section .pe-resource-no-images {
+    margin: 0;
+    font-size: 0.85rem;
+}
+.pe-resource-entry {
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-subtle);
+}
+.pe-resource-label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    color: var(--text-muted);
+}
+.pe-resource-img-wrap {
+    margin-top: 0.35rem;
+}
+.pe-resource-img {
+    max-width: 128px;
+    max-height: 128px;
+    object-fit: contain;
+    vertical-align: middle;
+}
+.pe-resource-text {
+    margin: 0.35rem 0 0;
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 12rem;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+}
 .pe-sig-absent { color: var(--red); }
 .pe-risk-block { margin-top: 0.25rem; }
+.pe-risk-desc { font-size: 0.75rem; font-weight: normal; }
 .pe-risk-score { font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; margin-right: 0.25rem; }
 .pe-risk-none { color: var(--green); background: rgba(72, 187, 120, 0.2); }
 .pe-risk-low { color: var(--yellow-dark); background: rgba(246, 224, 94, 0.2); }

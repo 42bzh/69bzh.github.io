@@ -756,6 +756,37 @@ async function updateFileInfoBadge(name, bytes) {
     }
 }
 
+/** Turn a DIB (device-independent bitmap, no file header) into a BMP data URL for display. */
+function peResourceDibToBmpDataUrl(base64) {
+    try {
+        const raw = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+        if (raw.length < 40) return null;
+        const size = raw.length + 14;
+        const buf = new Uint8Array(14 + raw.length);
+        buf[0] = 0x42;
+        buf[1] = 0x4d;
+        new DataView(buf.buffer).setUint32(2, size, true);
+        buf[10] = 54;
+        buf.set(raw, 14);
+        const b64 = btoa(String.fromCharCode.apply(null, buf));
+        return `data:image/bmp;base64,${b64}`;
+    } catch (_) {
+        return null;
+    }
+}
+
+/** Decode PE resource text (Version, Manifest, String): often UTF-16LE, fallback UTF-8. */
+function peDecodeResourceText(raw) {
+    if (raw.length < 2) return new TextDecoder('utf-8', { fatal: false }).decode(raw);
+    if (raw[0] === 0xff && raw[1] === 0xfe) {
+        return new TextDecoder('utf-16le', { fatal: false }).decode(raw.slice(2));
+    }
+    if (raw[0] === 0x3c && raw[1] === 0x00) {
+        return new TextDecoder('utf-16le', { fatal: false }).decode(raw);
+    }
+    return new TextDecoder('utf-8', { fatal: false }).decode(raw);
+}
+
 function buildPeSummaryHtml(data) {
     if (!data || !data.header) return '';
     const h = data.header;
@@ -824,7 +855,8 @@ function buildPeSummaryHtml(data) {
     if (data.risk) {
         const r = data.risk;
         const scoreClass = r.score >= 75 ? 'pe-risk-high' : r.score >= 50 ? 'pe-risk-medium' : r.score >= 25 ? 'pe-risk-low' : 'pe-risk-none';
-        html += '<div class="pe-summary-section pe-risk-block"><strong>Risk</strong>';
+        html += '<div class="pe-summary-section pe-risk-block"><strong>Risk (PE)</strong>';
+        html += '<span class="pe-risk-desc muted"> Static analysis (PEStudio-style)</span><br>';
         html += `<span class="pe-risk-score ${scoreClass}">${r.score}</span> / 100`;
         if (r.tags && r.tags.length > 0) {
             html += '<ul class="pe-summary-list pe-risk-tags">';
@@ -879,6 +911,19 @@ function buildElfSummaryHtml(data) {
             }
         }
         html += '<div class="pe-summary-section"><strong>Entropy</strong> Max section: <span class="mono">' + (maxEntropy > 0 ? maxEntropy.toFixed(2) + ' bits' : '—') + '</span></div>';
+    }
+    if (data.risk) {
+        const r = data.risk;
+        const scoreClass = r.score >= 75 ? 'pe-risk-high' : r.score >= 50 ? 'pe-risk-medium' : r.score >= 25 ? 'pe-risk-low' : 'pe-risk-none';
+        html += '<div class="pe-summary-section pe-risk-block"><strong>Risk (ELF)</strong>';
+        html += '<span class="pe-risk-desc muted"> Hardening &amp; anomalies</span><br>';
+        html += '<span class="pe-risk-score ' + scoreClass + '">' + r.score + '</span> / 100';
+        if (r.tags && r.tags.length > 0) {
+            html += '<ul class="pe-summary-list pe-risk-tags">';
+            for (const tag of r.tags) html += '<li class="' + scoreClass + '">' + escapeHtml(tag) + '</li>';
+            html += '</ul>';
+        }
+        html += '</div>';
     }
     html += '</div></div>';
     return html;
@@ -1052,6 +1097,8 @@ function createEmulator(bytes, opts = {}) {
         if (opts.asShellcode) {
             if (elfTitleEl) elfTitleEl.textContent = 'Binary';
             if (elfStructureEl) elfStructureEl.innerHTML = '<span class="muted">Shellcode (no binary structure).</span>';
+            const peResourcesTabBtn = document.querySelector('.tab-pe-resources');
+            if (peResourcesTabBtn) peResourcesTabBtn.style.display = 'none';
             elfFunctions = [];
             renderFunctions();
         } else if (opts.asPe) {
@@ -1080,6 +1127,8 @@ function createEmulator(bytes, opts = {}) {
         } else {
             _lastPeStructure = null;
             if (elfTitleEl) elfTitleEl.textContent = 'ELF structure';
+            const peResourcesTabBtn = document.querySelector('.tab-pe-resources');
+            if (peResourcesTabBtn) peResourcesTabBtn.style.display = 'none';
             try {
                 const json = parse_elf_structure(bytes);
                 const data = JSON.parse(json);
@@ -3387,6 +3436,14 @@ e_shstrndx: ${h.e_shstrndx}
         for (const c of data.compiler_info) html += '<li>' + escapeHtml(c) + '</li>';
         html += '</ul></div>';
     }
+    if (data.imported_symbols && data.imported_symbols.length > 0) {
+        html += '<div class="elf-section"><span class="elf-section-title">Import table (imported symbols)</span>';
+        html += '<table class="elf-table"><thead><tr><th>Symbol</th></tr></thead><tbody>';
+        for (const imp of data.imported_symbols) {
+            html += '<tr><td class="mono">' + escapeHtml(imp.name) + '</td></tr>';
+        }
+        html += '</tbody></table></div>';
+    }
     if (data.program_headers && data.program_headers.length > 0) {
         html += '<div class="elf-section"><span class="elf-section-title">Program Headers</span>';
         html += '<table class="elf-table"><thead><tr><th>Type</th><th>Flags</th><th>Offset</th><th>VirtAddr</th><th>FileSiz</th><th>MemSiz</th><th>Align</th></tr></thead><tbody>';
@@ -3452,20 +3509,30 @@ function renderStrings(data) {
             ? String(all.length)
             : filtered.length + ' / ' + all.length;
     }
-    let html = '<table class="elf-table"><thead><tr><th>Offset</th><th>Length</th><th>Preview</th></tr></thead><tbody>';
+    let html = '<table class="elf-table strings-table"><thead><tr><th>Offset</th><th>VA</th><th>Length</th><th>Preview</th></tr></thead><tbody>';
     for (const str of filtered) {
         const va = str.va != null && str.va !== 0 ? str.va : null;
-        const addrCell = va != null
-            ? `<td class="mono xref-addr" data-addr="${va}" title="Go to disassembly">${escapeHtml('0x' + Number(str.offset).toString(16))}</td>`
-            : `<td class="mono">${escapeHtml('0x' + Number(str.offset).toString(16))}</td>`;
-        html += `<tr>${addrCell}<td>${str.length}</td><td class="string-preview">${escapeHtml(str.preview || '')}</td></tr>`;
+        const offsetCell = `<td class="mono strings-addr" data-offset="${str.offset}" data-va="${va || ''}" title="${va ? 'Go to address' : 'File offset'}">${escapeHtml('0x' + Number(str.offset).toString(16))}</td>`;
+        const vaCell = va != null
+            ? `<td class="mono strings-addr" data-offset="${str.offset}" data-va="${va}" title="Go to address">${escapeHtml('0x' + (va >>> 0).toString(16))}</td>`
+            : '<td class="mono muted">—</td>';
+        const rowClass = va != null ? 'strings-row strings-row-clickable' : 'strings-row';
+        html += `<tr class="${rowClass}" data-va="${va || ''}">${offsetCell}${vaCell}<td>${str.length}</td><td class="string-preview">${escapeHtml(str.preview || '')}</td></tr>`;
     }
     html += '</tbody></table>';
     el.innerHTML = html;
-    el.querySelectorAll('.xref-addr').forEach(node => {
-        node.addEventListener('click', () => {
-            const addr = parseInt(node.getAttribute('data-addr'), 10);
-            if (!isNaN(addr) && emulator) navigateDisasmTo(addr);
+    el.querySelectorAll('.strings-row-clickable').forEach(row => {
+        row.style.cursor = 'pointer';
+        row.addEventListener('click', (e) => {
+            if (e.target.classList && e.target.classList.contains('string-preview')) return;
+            const vaStr = row.dataset.va || '';
+            if (!vaStr) return;
+            const addr = parseInt(vaStr, 10);
+            if (!isNaN(addr) && emulator) {
+                navigateDisasmTo(addr);
+                if (memAddr) memAddr.value = '0x' + (addr >>> 0).toString(16);
+                if (typeof refreshMemory === 'function') refreshMemory();
+            }
         });
     });
 }
@@ -3536,7 +3603,7 @@ Type:      ${h.is_dll ? 'DLL' : 'EXE'}
     }
     if (data.imports && data.imports.length > 0) {
         const imageBase = typeof data.image_base === 'number' ? data.image_base : (parseInt(String(data.image_base).replace(/^0x/i, ''), 16) || 0);
-        html += '<div class="elf-section"><span class="elf-section-title">Imports</span>';
+        html += '<div class="elf-section"><span class="elf-section-title">Import table (detailed)</span>';
         html += '<table class="elf-table"><thead><tr><th>DLL</th><th>Name</th><th>IAT Offset</th><th>Referenced at</th></tr></thead><tbody>';
         for (const i of data.imports) {
             let refsCell = '<span class="muted">—</span>';
@@ -3550,7 +3617,64 @@ Type:      ${h.is_dll ? 'DLL' : 'EXE'}
         }
         html += '</tbody></table></div>';
     }
+    if (data.resources && data.resources.length > 0) {
+        html += '<div class="elf-section"><span class="elf-section-title">PE Resources</span>';
+        html += '<table class="elf-table"><thead><tr><th>Type ID</th><th>Type</th></tr></thead><tbody>';
+        for (const r of data.resources) {
+            html += '<tr><td class="mono">' + r.type_id + '</td><td>' + escapeHtml(r.type_name) + '</td></tr>';
+        }
+        html += '</tbody></table></div>';
+    }
     el.innerHTML = html;
+    // PE Resources viewer tab: show and populate when PE has resources
+    const peResourcesTabBtn = document.querySelector('.tab-pe-resources');
+    const peResourcesTabPanel = document.getElementById('pe-resources-tab');
+    const peResourcesStructureEl = document.getElementById('pe-resources-structure');
+    if (data.resources && data.resources.length > 0 && peResourcesTabBtn && peResourcesTabPanel && peResourcesStructureEl) {
+        peResourcesTabBtn.style.display = '';
+        let resHtml = '';
+        const entries = data.resource_entries || [];
+        const imageEntries = entries.filter(e => e.display_as === 'image');
+        const otherEntries = entries.filter(e => e.display_as !== 'image');
+        resHtml += '<div class="pe-resource-section"><h4 class="pe-resource-section-title">Icons &amp; images</h4>';
+        if (imageEntries.length === 0) {
+            resHtml += '<p class="muted pe-resource-no-images">No icons or bitmaps in this PE.</p>';
+        }
+        resHtml += '</div>';
+        for (const e of [...imageEntries, ...otherEntries]) {
+            const label = `${escapeHtml(e.type_name)} (id ${e.name_or_id}, lang ${e.lang_id})`;
+            if (e.display_as === 'image' && e.data_base64) {
+                let dataUrl;
+                if (e.type_id === 2) {
+                    dataUrl = peResourceDibToBmpDataUrl(e.data_base64) || `data:image/bmp;base64,${e.data_base64}`;
+                } else {
+                    dataUrl = `data:image/x-icon;base64,${e.data_base64}`;
+                }
+                resHtml += `<div class="pe-resource-entry"><span class="pe-resource-label">${label}</span>`;
+                if (e.width != null && e.height != null) {
+                    resHtml += ` <span class="muted">${e.width}×${e.height}</span>`;
+                }
+                resHtml += `<div class="pe-resource-img-wrap"><img src="${dataUrl}" alt="${escapeHtml(e.type_name)}" class="pe-resource-img" loading="lazy" onerror="this.onerror=null;this.style.display='none';var s=this.nextElementSibling;if(s)s.style.display='block';"><span class="pe-resource-img-fallback muted" style="display:none">Image could not be displayed</span></div></div>`;
+            } else if (e.display_as === 'text' && e.data_base64) {
+                const raw = Uint8Array.from(atob(e.data_base64), c => c.charCodeAt(0));
+                const decoded = peDecodeResourceText(raw);
+                resHtml += `<div class="pe-resource-entry"><span class="pe-resource-label">${label}</span><pre class="pe-resource-text">${escapeHtml(decoded)}</pre></div>`;
+            } else if (e.data_base64) {
+                const len = Math.floor((e.data_base64.length * 3) / 4);
+                resHtml += `<div class="pe-resource-entry"><span class="pe-resource-label">${label}</span><span class="muted">${len} bytes (binary)</span></div>`;
+            }
+        }
+        resHtml += '<h4 class="pe-resource-section-title">Resource types</h4>';
+        resHtml += '<table class="elf-table"><thead><tr><th>Type ID</th><th>Type</th><th>Count</th></tr></thead><tbody>';
+        for (const r of data.resources) {
+            resHtml += '<tr><td class="mono">' + r.type_id + '</td><td>' + escapeHtml(r.type_name) + '</td><td>' + (r.count || 1) + '</td></tr>';
+        }
+        resHtml += '</tbody></table>';
+        peResourcesStructureEl.innerHTML = resHtml;
+    } else {
+        if (peResourcesTabBtn) peResourcesTabBtn.style.display = 'none';
+        if (peResourcesStructureEl) peResourcesStructureEl.innerHTML = '<span class="muted">' + (typeof t === 'function' ? t('peResourcesLoadPrompt') : 'Load a PE (EXE/DLL) binary to view its resources.') + '</span>';
+    }
     // Click-to-navigate for xref addresses (Binary tab)
     el.querySelectorAll('.xref-addr').forEach(node => {
         node.addEventListener('click', () => {

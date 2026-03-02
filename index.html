@@ -160,6 +160,17 @@
                 </section>
 
                 <section class="help-section">
+                    <h3 data-i18n="helpLabelsCommentsTitle">Labels &amp; Comments</h3>
+                    <p class="help-lead" data-i18n="helpLabelsCommentsLead">Add bookmarks (labels) and comments at any address in the Disassembly or Memory view. They are saved in the browser and appear in the Bookmarks and Comments panels.</p>
+                    <ol class="help-steps">
+                        <li data-i18n="helpLabelsCommentsRightClick"><strong>Right-click</strong> an address in the Disassembly listing or in the Memory hex dump to open the context menu.</li>
+                        <li data-i18n="helpLabelsCommentsBookmark">Choose <strong>Add bookmark (label)</strong> to set a label (e.g. <code>loop_start</code>). The label appears above that address in the disassembly and in the <strong>Bookmarks</strong> tab.</li>
+                        <li data-i18n="helpLabelsCommentsComment">Choose <strong>Add comment</strong> to attach a comment. It appears as <code>; your text</code> in the disassembly and in the <strong>Comments</strong> tab.</li>
+                        <li data-i18n="helpLabelsCommentsEdit">Use the same menu to edit (click again) or remove a bookmark or comment. Labels and comments are persisted and included in snapshots.</li>
+                    </ol>
+                </section>
+
+                <section class="help-section">
                     <h3 data-i18n="helpKbShortcuts">Keyboard Shortcuts</h3>
                     <table class="help-table">
                         <tr><td><kbd>F5</kbd></td><td data-i18n="helpKbF5">Continue execution</td></tr>
@@ -338,6 +349,7 @@
                     <button class="tab-btn" data-tab="accesses-tab" data-i18n="tabAccesses">Accesses</button>
                     <button class="tab-btn" data-tab="functions-tab" data-i18n="tabFunctions">Functions</button>
                     <button class="tab-btn" data-tab="elf-tab" data-i18n="tabBinary">Binary</button>
+                    <button class="tab-btn tab-pe-resources" data-tab="pe-resources-tab" data-i18n="tabPeResources" style="display:none">PE Resources</button>
                     <button class="tab-btn" data-tab="strings-tab" data-i18n="tabStrings">Strings</button>
                     <button class="tab-btn" data-tab="yara-tab">YARA</button>
                     <button class="tab-btn" data-tab="asm-tab">Assembly</button>
@@ -424,6 +436,16 @@
                         <span class="elf-title" data-i18n="elfTitle">ELF structure</span>
                     </div>
                     <pre class="terminal elf-structure" id="elf-structure"><span class="muted" data-i18n="binaryLoadPrompt">Load an ELF or PE (Windows) binary to view its structure (headers, sections, exports).</span></pre>
+                </div>
+                <div class="tab-content" id="pe-resources-tab">
+                    <div class="elf-controls">
+                        <span class="elf-title" data-i18n="peResourcesViewerTitle">PE Resources viewer</span>
+                    </div>
+                    <div class="tab-scroll-wrap pe-resources-wrap">
+                        <div class="elf-section pe-resources-structure" id="pe-resources-structure">
+                            <span class="muted" data-i18n="peResourcesLoadPrompt">Load a PE (EXE/DLL) binary to view its resources.</span>
+                        </div>
+                    </div>
                 </div>
                 <div class="tab-content" id="strings-tab">
                     <div class="elf-controls strings-controls">
