@@ -754,6 +754,10 @@ header {
     color: var(--text-muted);
     font-style: italic;
 }
+.disasm-string-ref {
+    color: var(--green);
+    font-style: italic;
+}
 
 .disasm-line {
     display: flex;
@@ -1220,6 +1224,27 @@ header {
     flex-shrink: 0;
 }
 
+.mem-palette-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+.mem-palette-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.mem-palette-select {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+}
+.mem-palette-select:focus { outline: 1px solid var(--accent); }
+
 .mem-edit-hint {
     font-size: 0.65rem;
     white-space: nowrap;
@@ -1281,6 +1306,29 @@ header {
     font-size: 0.72rem;
     line-height: 1.55;
     min-width: 100ch;
+}
+
+/* Fixed-width columns so hex bytes and ASCII stay vertically aligned */
+.memory-dump .mem-addr-col {
+    display: inline-block;
+    width: 12ch;
+    min-width: 12ch;
+    text-align: right;
+    box-sizing: border-box;
+}
+.memory-dump .mem-byte-hex {
+    display: inline-block;
+    width: 3ch;
+    min-width: 3ch;
+    text-align: right;
+    box-sizing: border-box;
+}
+.memory-dump .mem-byte:not(.mem-byte-hex) {
+    display: inline-block;
+    width: 1ch;
+    min-width: 1ch;
+    text-align: center;
+    box-sizing: border-box;
 }
 
 /* ── Registers ───────────────────────────────────────────────────────── */
@@ -1883,15 +1931,107 @@ footer .footer-beta {
     overflow: hidden;
 }
 
-/* Memory access highlighting in hex dump — QIRA convention:
-   reads = dark yellow, writes = bright yellow, selected = blue */
-.mem-byte-read { color: var(--yellow-dark); }
-.mem-byte-write { color: var(--yellow-bright); font-weight: 700; }
-.mem-byte-rw { color: var(--yellow-bright); font-weight: 700; text-decoration: underline; }
+/* Same value = same color; 16 slots by low nibble. Default palette: 00=red for visibility, then distinct hues. */
+.mem-byte-v0  { color: #ef4444; background: rgba(239, 68, 68, 0.25);   border-radius: 2px; } /* 00 = red */
+.mem-byte-v1  { color: #f87171; background: rgba(248, 113, 113, 0.22);  border-radius: 2px; }
+.mem-byte-v2  { color: #fb923c; background: rgba(251, 146, 60, 0.22);  border-radius: 2px; }
+.mem-byte-v3  { color: #facc15; background: rgba(250, 204, 21, 0.22);   border-radius: 2px; }
+.mem-byte-v4  { color: #a3e635; background: rgba(163, 230, 53, 0.18);   border-radius: 2px; }
+.mem-byte-v5  { color: #22c55e; background: rgba(34, 197, 94, 0.2);   border-radius: 2px; }
+.mem-byte-v6  { color: #2dd4bf; background: rgba(45, 212, 191, 0.2);  border-radius: 2px; }
+.mem-byte-v7  { color: #22d3ee; background: rgba(34, 211, 238, 0.2);   border-radius: 2px; }
+.mem-byte-v8  { color: #38bdf8; background: rgba(56, 189, 248, 0.22);   border-radius: 2px; }
+.mem-byte-v9  { color: #60a5fa; background: rgba(96, 165, 250, 0.22);   border-radius: 2px; }
+.mem-byte-v10 { color: #818cf8; background: rgba(129, 140, 248, 0.22);  border-radius: 2px; }
+.mem-byte-v11 { color: #a78bfa; background: rgba(167, 139, 250, 0.22);  border-radius: 2px; }
+.mem-byte-v12 { color: #c084fc; background: rgba(192, 132, 252, 0.22);  border-radius: 2px; }
+.mem-byte-v13 { color: #e879f9; background: rgba(232, 121, 249, 0.22);  border-radius: 2px; }
+.mem-byte-v14 { color: #f472b6; background: rgba(244, 114, 182, 0.22);  border-radius: 2px; }
+.mem-byte-v15 { color: #fb7185; background: rgba(251, 113, 133, 0.22);  border-radius: 2px; }
+
+/* Alternative palettes (applied via body[data-mem-palette="..."]) */
+[data-mem-palette="grayscale"] .mem-byte-v0  { color: #f1f5f9; background: rgba(241, 245, 249, 0.3);  }
+[data-mem-palette="grayscale"] .mem-byte-v1  { color: #e2e8f0; background: rgba(226, 232, 240, 0.25); }
+[data-mem-palette="grayscale"] .mem-byte-v2  { color: #cbd5e1; background: rgba(203, 213, 225, 0.22); }
+[data-mem-palette="grayscale"] .mem-byte-v3  { color: #94a3b8; background: rgba(148, 163, 184, 0.2);  }
+[data-mem-palette="grayscale"] .mem-byte-v4  { color: #64748b; background: rgba(100, 116, 139, 0.2);  }
+[data-mem-palette="grayscale"] .mem-byte-v5  { color: #475569; background: rgba(71, 85, 105, 0.2);  }
+[data-mem-palette="grayscale"] .mem-byte-v6  { color: #334155; background: rgba(51, 65, 85, 0.25);  }
+[data-mem-palette="grayscale"] .mem-byte-v7  { color: #1e293b; background: rgba(30, 41, 59, 0.3);   }
+[data-mem-palette="grayscale"] .mem-byte-v8  { color: #94a3b8; background: rgba(148, 163, 184, 0.2);  }
+[data-mem-palette="grayscale"] .mem-byte-v9  { color: #64748b; background: rgba(100, 116, 139, 0.2);  }
+[data-mem-palette="grayscale"] .mem-byte-v10 { color: #475569; background: rgba(71, 85, 105, 0.2);  }
+[data-mem-palette="grayscale"] .mem-byte-v11 { color: #334155; background: rgba(51, 65, 85, 0.25);  }
+[data-mem-palette="grayscale"] .mem-byte-v12 { color: #cbd5e1; background: rgba(203, 213, 225, 0.22); }
+[data-mem-palette="grayscale"] .mem-byte-v13 { color: #94a3b8; background: rgba(148, 163, 184, 0.2);  }
+[data-mem-palette="grayscale"] .mem-byte-v14 { color: #64748b; background: rgba(100, 116, 139, 0.2);  }
+[data-mem-palette="grayscale"] .mem-byte-v15 { color: #475569; background: rgba(71, 85, 105, 0.2);  }
+
+[data-mem-palette="pastel"] .mem-byte-v0  { color: #fca5a5; background: rgba(252, 165, 165, 0.25);  }
+[data-mem-palette="pastel"] .mem-byte-v1  { color: #f9a8d4; background: rgba(249, 168, 212, 0.2);  }
+[data-mem-palette="pastel"] .mem-byte-v2  { color: #fcd34d; background: rgba(252, 211, 77, 0.2);   }
+[data-mem-palette="pastel"] .mem-byte-v3  { color: #bef264; background: rgba(190, 242, 100, 0.18);  }
+[data-mem-palette="pastel"] .mem-byte-v4  { color: #6ee7b7; background: rgba(110, 231, 183, 0.18);  }
+[data-mem-palette="pastel"] .mem-byte-v5  { color: #67e8f9; background: rgba(103, 232, 249, 0.2);  }
+[data-mem-palette="pastel"] .mem-byte-v6  { color: #93c5fd; background: rgba(147, 197, 253, 0.2);  }
+[data-mem-palette="pastel"] .mem-byte-v7  { color: #a5b4fc; background: rgba(165, 180, 252, 0.2);  }
+[data-mem-palette="pastel"] .mem-byte-v8  { color: #c4b5fd; background: rgba(196, 181, 253, 0.2);  }
+[data-mem-palette="pastel"] .mem-byte-v9  { color: #d8b4fe; background: rgba(216, 180, 254, 0.2);  }
+[data-mem-palette="pastel"] .mem-byte-v10 { color: #e9d5ff; background: rgba(233, 213, 255, 0.18); }
+[data-mem-palette="pastel"] .mem-byte-v11 { color: #f5d0fe; background: rgba(245, 208, 254, 0.18); }
+[data-mem-palette="pastel"] .mem-byte-v12 { color: #fbcfe8; background: rgba(251, 207, 232, 0.2);  }
+[data-mem-palette="pastel"] .mem-byte-v13 { color: #fed7aa; background: rgba(254, 215, 170, 0.2);  }
+[data-mem-palette="pastel"] .mem-byte-v14 { color: #bbf7d0; background: rgba(187, 247, 208, 0.18);  }
+[data-mem-palette="pastel"] .mem-byte-v15 { color: #a5f3fc; background: rgba(165, 243, 252, 0.2);  }
+
+[data-mem-palette="vivid"] .mem-byte-v0  { color: #dc2626; background: rgba(220, 38, 38, 0.3);   }
+[data-mem-palette="vivid"] .mem-byte-v1  { color: #ea580c; background: rgba(234, 88, 12, 0.28);  }
+[data-mem-palette="vivid"] .mem-byte-v2  { color: #ca8a04; background: rgba(202, 138, 4, 0.28);   }
+[data-mem-palette="vivid"] .mem-byte-v3  { color: #65a30d; background: rgba(101, 163, 13, 0.25);  }
+[data-mem-palette="vivid"] .mem-byte-v4  { color: #059669; background: rgba(5, 150, 105, 0.25);   }
+[data-mem-palette="vivid"] .mem-byte-v5  { color: #0d9488; background: rgba(13, 148, 136, 0.25);  }
+[data-mem-palette="vivid"] .mem-byte-v6  { color: #0891b2; background: rgba(8, 145, 178, 0.25);   }
+[data-mem-palette="vivid"] .mem-byte-v7  { color: #2563eb; background: rgba(37, 99, 235, 0.25);   }
+[data-mem-palette="vivid"] .mem-byte-v8  { color: #4f46e5; background: rgba(79, 70, 229, 0.25);   }
+[data-mem-palette="vivid"] .mem-byte-v9  { color: #7c3aed; background: rgba(124, 58, 237, 0.25);  }
+[data-mem-palette="vivid"] .mem-byte-v10 { color: #a21caf; background: rgba(162, 28, 175, 0.25);  }
+[data-mem-palette="vivid"] .mem-byte-v11 { color: #be185d; background: rgba(190, 24, 93, 0.25);  }
+[data-mem-palette="vivid"] .mem-byte-v12 { color: #e11d48; background: rgba(225, 29, 72, 0.25);  }
+[data-mem-palette="vivid"] .mem-byte-v13 { color: #f43f5e; background: rgba(244, 63, 94, 0.25);  }
+[data-mem-palette="vivid"] .mem-byte-v14 { color: #f97316; background: rgba(249, 115, 22, 0.28);  }
+[data-mem-palette="vivid"] .mem-byte-v15 { color: #eab308; background: rgba(234, 179, 8, 0.28);   }
+
+/* Memory access highlighting in hex dump — QIRA-style with visible background blocks
+   reads = amber/dark yellow tint, writes = bright yellow tint, rw = orange tint */
+.mem-byte-read {
+    color: var(--yellow-dark);
+    background: rgba(183, 164, 46, 0.25);
+    border-radius: 2px;
+}
+.mem-byte-write {
+    color: var(--yellow-bright);
+    font-weight: 700;
+    background: rgba(254, 240, 138, 0.35);
+    border-radius: 2px;
+}
+.mem-byte-rw {
+    color: var(--yellow-bright);
+    font-weight: 700;
+    text-decoration: underline;
+    background: rgba(237, 137, 54, 0.3);
+    border-radius: 2px;
+}
 
 .mem-byte.clickable { cursor: pointer; }
-.mem-byte.clickable:hover { background: var(--surface-2); border-radius: 1px; }
-.mem-byte-daddr { outline: 1px solid var(--accent); border-radius: 1px; background: var(--surface-2); }
+.mem-byte.clickable:hover { background: var(--surface-2); border-radius: 2px; }
+.mem-byte-daddr {
+    outline: 2px solid var(--accent);
+    border-radius: 2px;
+    background: rgba(99, 179, 237, 0.25);
+}
+.mem-byte-daddr.mem-byte-read { background: rgba(99, 179, 237, 0.2); }
+.mem-byte-daddr.mem-byte-write,
+.mem-byte-daddr.mem-byte-rw { background: rgba(99, 179, 237, 0.3); }
 
 /* Hex editor inline edit */
 .mem-byte-edit {

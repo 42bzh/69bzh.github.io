@@ -399,6 +399,15 @@
                             <span class="mem-entropy-legend-label">H:</span>
                             <span class="mem-entropy-legend-bar" id="mem-entropy-legend-bar"></span>
                         </span>
+                        <label class="mem-palette-wrap" data-i18n-title="memPaletteTitle">
+                            <span class="mem-palette-label" data-i18n="memPalette">Palette</span>
+                            <select id="mem-palette-select" class="mem-palette-select" aria-label="Memory view color palette">
+                                <option value="default" data-i18n="memPaletteDefault">Default (00=red)</option>
+                                <option value="grayscale" data-i18n="memPaletteGrayscale">Grayscale</option>
+                                <option value="pastel" data-i18n="memPalettePastel">Pastel</option>
+                                <option value="vivid" data-i18n="memPaletteVivid">Vivid</option>
+                            </select>
+                        </label>
                         <span class="mem-edit-hint muted" data-i18n="memClickToEdit" data-i18n-title="memClickToEditTitle">Click byte to edit</span>
                     </div>
                     <div class="memory-search-bar">
@@ -798,6 +807,8 @@
 
     <!-- Right-click context menu for bookmarks / comments (disassembly & memory) -->
     <div id="annotation-context-menu" class="annotation-context-menu" role="menu" aria-hidden="true">
+        <button type="button" class="annotation-menu-item" data-action="track-address" data-i18n="annotTrackAddress" hidden>Track address (watch only)</button>
+        <button type="button" class="annotation-menu-item" data-action="breakpoint" data-i18n="annotSetBreakpoint" hidden>Set memory breakpoint</button>
         <button type="button" class="annotation-menu-item" data-action="bookmark-add" data-i18n="annotBookmark">Add bookmark (label)</button>
         <button type="button" class="annotation-menu-item" data-action="bookmark-remove" data-i18n="annotBookmarkRemove">Remove bookmark</button>
         <button type="button" class="annotation-menu-item" data-action="comment-add" data-i18n="annotComment">Add comment</button>

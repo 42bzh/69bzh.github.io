@@ -63,6 +63,12 @@ export class Emulator {
         wasm.emulator_add_library(this.__wbg_ptr, ptr0, len0, ptr1, len1);
     }
     /**
+     * Clear the data watchpoint (break on memory access).
+     */
+    clear_break_on_data() {
+        wasm.emulator_clear_break_on_data(this.__wbg_ptr);
+    }
+    /**
      * Clear all collected xrefs.
      */
     clear_xrefs() {
@@ -109,7 +115,8 @@ export class Emulator {
     }
     /**
      * Disassemble `count` instructions starting at `addr`.
-     * Returns JSON array of { addr, len, text, is_current, has_bp, branch_target?, region? }.
+     * Returns JSON array of { addr, len, text, is_current, has_bp, branch_target?, data_ref?, region? }.
+     * data_ref is the data address referenced by the instruction (e.g. string address) for string preview in UI.
      * @param {number} addr
      * @param {number} count
      * @returns {string}
@@ -1104,6 +1111,14 @@ export class Emulator {
      */
     set_break_on_any_syscall(enabled) {
         wasm.emulator_set_break_on_any_syscall(this.__wbg_ptr, enabled);
+    }
+    /**
+     * Set a data watchpoint: execution stops when any memory read or write touches [addr, addr+size).
+     * @param {number} addr
+     * @param {number} size
+     */
+    set_break_on_data(addr, size) {
+        wasm.emulator_set_break_on_data(this.__wbg_ptr, addr, size);
     }
     /**
      * Set the maximum number of instructions before stopping.

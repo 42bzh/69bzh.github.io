@@ -295,6 +295,25 @@ async function boot() {
         }
         eLegend.innerHTML = spans;
     }
+
+    // Memory view palette selector (persisted)
+    const memPaletteSelect = document.getElementById('mem-palette-select');
+    if (memPaletteSelect) {
+        const saved = localStorage.getItem('mem-palette');
+        const valid = ['default', 'grayscale', 'pastel', 'vivid'].includes(saved);
+        if (valid) {
+            memPaletteSelect.value = saved;
+            document.body.dataset.memPalette = saved;
+        } else {
+            document.body.dataset.memPalette = 'default';
+        }
+        memPaletteSelect.addEventListener('change', () => {
+            const v = memPaletteSelect.value;
+            document.body.dataset.memPalette = v;
+            localStorage.setItem('mem-palette', v);
+            if (typeof refreshMemory === 'function') refreshMemory();
+        });
+    }
 }
 
 boot();
@@ -843,7 +862,13 @@ function buildPeSummaryHtml(data) {
         if (data.exports.length > 6) html += `<li class="muted">… and ${data.exports.length - 6} more</li>`;
         html += '</ul></div>';
     }
-    html += '<div class="pe-summary-section"><strong>Version / resources</strong><span class="muted">—</span></div>';
+    if (data.version_info && (data.version_info.file_version || data.version_info.product_version || data.version_info.company_name)) {
+        const v = data.version_info;
+        const verStr = v.file_version || v.product_version || (v.company_name ? 'present' : '—');
+        html += '<div class="pe-summary-section"><strong>Version info</strong> ' + escapeHtml(verStr) + '</div>';
+    } else {
+        html += '<div class="pe-summary-section"><strong>Version / resources</strong><span class="muted">—</span></div>';
+    }
     if (data.security) {
         const dep = data.security.dep_nx ? '<span class="pe-sig-present">Yes (DEP/NX)</span>' : '<span class="pe-sig-absent">No</span>';
         const aslr = data.security.aslr ? '<span class="pe-sig-present">Yes (ASLR)</span>' : '<span class="pe-sig-absent">No</span>';
@@ -1558,6 +1583,9 @@ function navigateDaddr(direction) {
 
 function setDaddr(addr, size) {
     daddr = { addr, size: size || 4 };
+    if (emulator && typeof emulator.set_break_on_data === 'function') {
+        emulator.set_break_on_data(addr, daddr.size);
+    }
     updateDaddrDisplay();
     if (emulator && emulator.get_trace_length() > 0) {
         const idx = traceMode ? traceCursor : emulator.get_trace_length() - 1;
@@ -1567,20 +1595,50 @@ function setDaddr(addr, size) {
     renderRegionHistory();
 }
 
-// Memory breakpoint (Tenet-style): click a byte in Memory view to set daddr and seek to that access
+// Add address to watch list if not already present (so it appears in Watch section).
+function ensureWatchEntry(addr, size) {
+    size = size || 1;
+    const existing = watchList.some(w => w.addr === addr && w.size === size);
+    if (!existing) {
+        watchList.push({ addr, size, label: '0x' + addr.toString(16) });
+        if (typeof renderWatchList === 'function') renderWatchList();
+    }
+}
+
+// Memory breakpoint (Tenet-style): track address and stop execution on access
 window._setMemBreakpoint = (byteAddr) => {
     if (!emulator) return;
+    ensureWatchEntry(byteAddr, 1);
     setDaddr(byteAddr, 1);
     if (emulator.get_trace_length() > 0) {
         const start = traceMode ? traceCursor : emulator.get_trace_length() - 1;
         const idx = emulator.prev_trace_by_addr(byteAddr, 1, start);
         if (idx >= 0) seekTrace(idx);
     }
-    memAddr.value = '0x' + byteAddr.toString(16);
-    refreshMemory();
+    const memAddrEl = document.getElementById('mem-addr');
+    if (memAddrEl) memAddrEl.value = '0x' + byteAddr.toString(16);
+    if (typeof refreshMemory === 'function') refreshMemory();
+}
+
+// Track address in watch/daddr (see all accesses, J/K) but do NOT break on access
+window._setMemTrackOnly = (byteAddr) => {
+    if (!emulator) return;
+    ensureWatchEntry(byteAddr, 1);
+    setDaddr(byteAddr, 1);
+    if (emulator && typeof emulator.clear_break_on_data === 'function') {
+        emulator.clear_break_on_data();
+    }
+    const memAddrEl = document.getElementById('mem-addr');
+    if (memAddrEl) memAddrEl.value = '0x' + byteAddr.toString(16);
+    if (typeof refreshMemory === 'function') refreshMemory();
+    if (typeof updateDaddrDisplay === 'function') updateDaddrDisplay();
+    if (typeof renderWatchList === 'function') renderWatchList();
 }
 
 function clearDaddr() {
+    if (emulator && typeof emulator.clear_break_on_data === 'function') {
+        emulator.clear_break_on_data();
+    }
     daddr = null;
     updateDaddrDisplay();
     if (emulator && emulator.get_trace_length() > 0) {
@@ -1591,6 +1649,7 @@ function clearDaddr() {
 }
 
 function updateDaddrDisplay() {
+    if (!infoDaddr) return;
     if (daddr) {
         infoDaddr.textContent = `0x${daddr.addr.toString(16)} (${daddr.size}B)`;
         infoDaddr.classList.add('active');
@@ -1602,7 +1661,7 @@ function updateDaddrDisplay() {
     }
 }
 
-infoDaddr.addEventListener('click', () => {
+if (infoDaddr) infoDaddr.addEventListener('click', () => {
     if (daddr) { clearDaddr(); refreshMemory(); }
 });
 
@@ -2011,17 +2070,17 @@ function openMemoryByteEditor(span) {
     input.addEventListener('input', onInput);
 }
 
-// Single click on hex byte = edit; single click on ASCII byte = track address. Right-click = track address.
+// Single click on any byte = set memory breakpoint (daddr). Double-click on hex byte = edit. Right-click = context menu with "Set memory breakpoint".
 memoryDump.addEventListener('click', (e) => {
-    const span = e.target.closest('.mem-byte[data-addr]');
+    const span = e.target.closest('.mem-byte[data-addr], .mem-addr-col[data-addr]');
     if (!span) return;
     e.preventDefault();
     e.stopPropagation();
     const addr = parseInt(span.dataset.addr, 10);
     if (isNaN(addr)) return;
-    if (span.classList.contains('mem-byte-hex')) {
+    if (e.detail === 2 && span.classList.contains('mem-byte-hex')) {
         openMemoryByteEditor(span);
-    } else {
+    } else if (e.detail === 1) {
         window._setMemBreakpoint(addr);
     }
 });
@@ -2034,6 +2093,17 @@ memoryDump.addEventListener('contextmenu', (e) => {
     const addr = parseInt(span.dataset.addr, 10);
     if (!isNaN(addr)) showAnnotationContextMenu(e.clientX, e.clientY, addr, { includeBreakpoint: true });
 });
+
+if (accessesMemDump) {
+    accessesMemDump.addEventListener('contextmenu', (e) => {
+        const span = e.target.closest('.mem-byte[data-addr], .mem-addr-col[data-addr]');
+        if (!span) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const addr = parseInt(span.dataset.addr, 10);
+        if (!isNaN(addr)) showAnnotationContextMenu(e.clientX, e.clientY, addr, { includeBreakpoint: true });
+    });
+}
 
 // Stdin prompt: when program does read(0) and no data, we show this; user types and Send continues.
 function submitStdin() {
@@ -2290,31 +2360,50 @@ const annotationContextMenu = document.getElementById('annotation-context-menu')
 function showAnnotationContextMenu(x, y, addr, opts) {
     if (!annotationContextMenu) return;
     _annotationContextAddr = addr;
+    const fromMemory = opts && opts.includeBreakpoint;
     const key = annotationAddrToKey(addr);
     const bookmarks = getBookmarks();
     const comments = getComments();
     const hasBookmark = key && bookmarks[key];
     const hasComment = key && comments[key];
 
-    annotationContextMenu.querySelector('[data-action="bookmark-add"]').textContent = hasBookmark ? t('annotBookmarkEdit') : t('annotBookmark');
-    annotationContextMenu.querySelector('[data-action="bookmark-remove"]').hidden = !hasBookmark;
-    annotationContextMenu.querySelector('[data-action="comment-add"]').textContent = hasComment ? t('annotCommentEdit') : t('annotComment');
-    annotationContextMenu.querySelector('[data-action="comment-remove"]').hidden = !hasComment;
+    // Bookmark/comment only in disassembly context; hide when from memory (breakpoint-only menu)
+    const showBookmarkComment = !fromMemory;
+    const bookmarkAdd = annotationContextMenu.querySelector('[data-action="bookmark-add"]');
+    const bookmarkRemove = annotationContextMenu.querySelector('[data-action="bookmark-remove"]');
+    const commentAdd = annotationContextMenu.querySelector('[data-action="comment-add"]');
+    const commentRemove = annotationContextMenu.querySelector('[data-action="comment-remove"]');
+    if (bookmarkAdd) {
+        bookmarkAdd.textContent = hasBookmark ? t('annotBookmarkEdit') : t('annotBookmark');
+        bookmarkAdd.hidden = !showBookmarkComment;
+    }
+    if (bookmarkRemove) {
+        bookmarkRemove.hidden = !showBookmarkComment || !hasBookmark;
+    }
+    if (commentAdd) {
+        commentAdd.textContent = hasComment ? t('annotCommentEdit') : t('annotComment');
+        commentAdd.hidden = !showBookmarkComment;
+    }
+    if (commentRemove) {
+        commentRemove.hidden = !showBookmarkComment || !hasComment;
+    }
 
     if (opts && opts.includeBreakpoint) {
-        let bpBtn = annotationContextMenu.querySelector('[data-action="breakpoint"]');
-        if (!bpBtn) {
-            bpBtn = document.createElement('button');
-            bpBtn.type = 'button';
-            bpBtn.className = 'annotation-menu-item';
-            bpBtn.dataset.action = 'breakpoint';
+        const bpBtn = annotationContextMenu.querySelector('[data-action="breakpoint"]');
+        const trackBtn = annotationContextMenu.querySelector('[data-action="track-address"]');
+        if (bpBtn) {
             bpBtn.textContent = t('annotSetBreakpoint');
-            annotationContextMenu.insertBefore(bpBtn, annotationContextMenu.firstChild);
+            bpBtn.hidden = false;
         }
-        bpBtn.hidden = false;
+        if (trackBtn) {
+            trackBtn.textContent = t('annotTrackAddress');
+            trackBtn.hidden = false;
+        }
     } else {
         const bpBtn = annotationContextMenu.querySelector('[data-action="breakpoint"]');
         if (bpBtn) bpBtn.hidden = true;
+        const trackBtn = annotationContextMenu.querySelector('[data-action="track-address"]');
+        if (trackBtn) trackBtn.hidden = true;
     }
 
     annotationContextMenu.style.left = x + 'px';
@@ -2341,8 +2430,39 @@ function refreshDisasmAfterAnnotation() {
 
 (function setupAnnotationContextMenu() {
     if (!annotationContextMenu) return;
-    document.addEventListener('click', () => hideAnnotationContextMenu());
+    document.addEventListener('click', (e) => {
+        if (e.target.closest && e.target.closest('.annotation-context-menu')) return;
+        hideAnnotationContextMenu();
+    });
     document.addEventListener('contextmenu', () => hideAnnotationContextMenu());
+
+    // Handle breakpoint/track menu items in capture phase so we run before anything else
+    function onMenuAction(e) {
+        const btn = e.target.closest && e.target.closest('.annotation-menu-item');
+        if (!btn || _annotationContextAddr == null) return;
+        const action = btn.dataset.action;
+        if (action === 'breakpoint') {
+            e.preventDefault();
+            e.stopPropagation();
+            const addr = Number(_annotationContextAddr);
+            if (!Number.isFinite(addr)) return;
+            hideAnnotationContextMenu();
+            if (typeof window._setMemBreakpoint === 'function') window._setMemBreakpoint(addr);
+            return;
+        }
+        if (action === 'track-address') {
+            e.preventDefault();
+            e.stopPropagation();
+            const addr = Number(_annotationContextAddr);
+            if (!Number.isFinite(addr)) return;
+            hideAnnotationContextMenu();
+            if (typeof window._setMemTrackOnly === 'function') window._setMemTrackOnly(addr);
+            return;
+        }
+    }
+    annotationContextMenu.addEventListener('mousedown', onMenuAction, true);
+    annotationContextMenu.addEventListener('pointerdown', onMenuAction, true);
+    annotationContextMenu.addEventListener('click', onMenuAction, true);
 
     if (disasmList) {
         disasmList.addEventListener('contextmenu', (e) => {
@@ -2365,6 +2485,11 @@ function refreshDisasmAfterAnnotation() {
 
         if (action === 'breakpoint') {
             if (typeof window._setMemBreakpoint === 'function') window._setMemBreakpoint(addr);
+            hideAnnotationContextMenu();
+            return;
+        }
+        if (action === 'track-address') {
+            if (typeof window._setMemTrackOnly === 'function') window._setMemTrackOnly(addr);
             hideAnnotationContextMenu();
             return;
         }
@@ -2820,8 +2945,8 @@ function doStepN(n) {
             const json = emulator.run_n(batch);
             const info = JSON.parse(json);
             remaining -= batch;
-            if (info.status === 'breakpoint') {
-                lastStoppedAtBreakpoint = true;
+            if (info.status === 'breakpoint' || info.status === 'break_on_data_access') {
+                if (info.status === 'breakpoint') lastStoppedAtBreakpoint = true;
                 isRunning = false;
                 handleStepInfo(info);
                 enableButtons(true);
@@ -2831,7 +2956,7 @@ function doStepN(n) {
                 animFrame = requestAnimationFrame(runChunk);
             } else {
                 // Finished all steps or terminal state (exited, halted, etc.)
-                if (info.status !== 'breakpoint') lastStoppedAtBreakpoint = false;
+                if (info.status !== 'breakpoint' && info.status !== 'break_on_data_access') lastStoppedAtBreakpoint = false;
                 isRunning = false;
                 handleStepInfo(info);
                 if (info.status === 'running') setStatus('statusPaused', 'paused');
@@ -2874,10 +2999,10 @@ function doContinue() {
             const json = emulator.run_n(2000);
             const info = JSON.parse(json);
             handleStepInfo(info);
-            if (info.status === 'breakpoint') {
-                lastStoppedAtBreakpoint = true;
+            if (info.status === 'breakpoint' || info.status === 'break_on_data_access') {
+                if (info.status === 'breakpoint') lastStoppedAtBreakpoint = true;
                 isRunning = false;
-                setStatus('statusBreakpoint', 'breakpoint');
+                setStatus(info.status === 'break_on_data_access' ? 'statusMemoryAccess' : 'statusBreakpoint', 'breakpoint');
                 enableButtons(true);
                 captureLastAccesses();
                 updateFullUI();
@@ -3031,6 +3156,8 @@ function handleStepInfo(info) {
         setStatus('statusLimit', 'error');
     } else if (info.status === 'breakpoint') {
         setStatus('statusBreakpoint', 'breakpoint');
+    } else if (info.status === 'break_on_data_access') {
+        setStatus('statusMemoryAccess', 'breakpoint');
     } else if (info.status === 'needs_stdin') {
         const n = info.needs_stdin_count ?? 0;
         if (stdinPromptCount) stdinPromptCount.textContent = n;
@@ -3555,12 +3682,15 @@ function renderPeStructure(data) {
     // At-a-glance PE/DLL summary at top
     html += '<div class="pe-at-a-glance">' + buildPeSummaryHtml(data) + '</div>';
     const h = data.header;
+    const osVer = (h.major_os_version != null && h.minor_os_version != null) ? `${h.major_os_version}.${h.minor_os_version}` : '—';
+    const subsVer = (h.major_subsystem_version != null && h.minor_subsystem_version != null) ? `${h.major_subsystem_version}.${h.minor_subsystem_version}` : '—';
     html += '<div class="elf-section"><span class="elf-section-title">PE Header</span><pre class="elf-header-pre">';
     html += `Format:     ${escapeHtml(h.format)}
 Machine:   ${escapeHtml(h.machine)}
 ImageBase: ${escapeHtml(h.image_base)}
 Entry RVA: ${escapeHtml(h.entry_rva)}
-Subsystem: ${escapeHtml(h.subsystem)}
+Subsystem: ${escapeHtml(h.subsystem)} (required version ${subsVer})
+OS ver:    ${osVer}
 Sections:  ${h.num_sections}
 Type:      ${h.is_dll ? 'DLL' : 'EXE'}
 `;
@@ -3622,6 +3752,39 @@ Type:      ${h.is_dll ? 'DLL' : 'EXE'}
         html += '<table class="elf-table"><thead><tr><th>Type ID</th><th>Type</th></tr></thead><tbody>';
         for (const r of data.resources) {
             html += '<tr><td class="mono">' + r.type_id + '</td><td>' + escapeHtml(r.type_name) + '</td></tr>';
+        }
+        html += '</tbody></table></div>';
+    }
+    if (data.certificate) {
+        const c = data.certificate;
+        html += '<div class="elf-section"><span class="elf-section-title">Certificate / Authenticode</span><pre class="elf-header-pre">';
+        html += `Subject:    ${escapeHtml(c.subject)}
+Issuer:     ${escapeHtml(c.issuer)}
+Valid from: ${escapeHtml(c.valid_from)}
+Valid to:   ${escapeHtml(c.valid_to)}`;
+        if (c.thumbprint_sha1) html += `\nThumbprint: ${escapeHtml(c.thumbprint_sha1)}`;
+        html += '</pre></div>';
+    }
+    if (data.version_info) {
+        const v = data.version_info;
+        const vLines = [];
+        if (v.file_version) vLines.push('File version:    ' + escapeHtml(v.file_version));
+        if (v.product_version) vLines.push('Product version: ' + escapeHtml(v.product_version));
+        if (v.company_name) vLines.push('Company:         ' + escapeHtml(v.company_name));
+        if (v.file_description) vLines.push('Description:     ' + escapeHtml(v.file_description));
+        if (v.product_name) vLines.push('Product:         ' + escapeHtml(v.product_name));
+        if (v.original_filename) vLines.push('Original name:   ' + escapeHtml(v.original_filename));
+        if (v.internal_name) vLines.push('Internal name:   ' + escapeHtml(v.internal_name));
+        if (v.legal_copyright) vLines.push('Copyright:       ' + escapeHtml(v.legal_copyright));
+        if (vLines.length > 0) {
+            html += '<div class="elf-section"><span class="elf-section-title">Version info</span><pre class="elf-header-pre">' + vLines.join('\n') + '</pre></div>';
+        }
+    }
+    if (data.coff_symbols && data.coff_symbols.length > 0) {
+        html += '<div class="elf-section"><span class="elf-section-title">COFF symbol table</span>';
+        html += '<table class="elf-table"><thead><tr><th>Name</th><th>Value</th><th>Section</th><th>Storage</th><th>Type</th></tr></thead><tbody>';
+        for (const sym of data.coff_symbols) {
+            html += `<tr><td class="mono">${escapeHtml(sym.name)}</td><td class="mono">${escapeHtml(sym.value)}</td><td>${escapeHtml(sym.section)}</td><td>${escapeHtml(sym.storage_class)}</td><td>${escapeHtml(sym.type_info)}</td></tr>`;
         }
         html += '</tbody></table></div>';
     }
@@ -4117,6 +4280,12 @@ function updateStraceSearchStatus() {
 const _HEX_TABLE = new Array(256);
 for (let i = 0; i < 256; i++) _HEX_TABLE[i] = i.toString(16).padStart(2, '0');
 
+/** Same color for same byte value everywhere; 16 palette slots by low nibble. Hex and ASCII use same class so they stay in sync. */
+function memByteValueClass(byteVal) {
+    const slot = byteVal % 16;
+    return 'mem-byte-v' + slot;
+}
+
 function refreshMemory() {
     if (!emulator) return;
     const text = memAddr.value.trim();
@@ -4212,8 +4381,9 @@ function refreshMemory() {
                 else if (accType.includes('w')) cls = 'mem-byte-write';
                 else cls = 'mem-byte-read';
             }
+            const valCls = isValid ? ' ' + memByteValueClass(byteVal) : '';
 
-            const clsStr = cls ? `mem-byte clickable ${cls}${daddrCls}${searchCls}` : `mem-byte clickable${daddrCls}${searchCls}`;
+            const clsStr = cls ? `mem-byte clickable ${cls}${valCls}${daddrCls}${searchCls}` : `mem-byte clickable${valCls}${daddrCls}${searchCls}`;
             hexHtml += `<span class="mem-byte-hex ${clsStr}" data-addr="${byteAddr}" title="${byteTitle}">${hexStr}</span> `;
 
             if (!isValid) {
@@ -4334,22 +4504,17 @@ function previewAccessMemory(centerAddr, size, isWrite, allAccesses) {
             if (isTarget && !cls) cls = isWrite ? 'mem-byte-write' : 'mem-byte-read';
 
             const byteTitle = 'Set memory breakpoint';
-            if (cls) {
-                hexHtml += `<span class="mem-byte clickable ${cls}" data-addr="${byteAddr}" onclick="window._setMemBreakpoint(${byteAddr})" title="${byteTitle}">${b}</span> `;
-            } else {
-                hexHtml += `<span class="mem-byte clickable" data-addr="${byteAddr}" onclick="window._setMemBreakpoint(${byteAddr})" title="${byteTitle}">${b}</span> `;
-            }
+            const v = b === '??' ? null : parseInt(b, 16);
+            const valCls = (v !== null && !isNaN(v)) ? ' ' + memByteValueClass(v) : '';
+            const baseCls = `mem-byte clickable${valCls}`;
+            const fullCls = cls ? `${baseCls} ${cls}` : baseCls;
+            hexHtml += `<span class="${fullCls}" data-addr="${byteAddr}" onclick="window._setMemBreakpoint(${byteAddr})" title="${byteTitle}">${b}</span> `;
 
             if (b === '??') {
                 asciiHtml += '.';
             } else {
-                const v = parseInt(b, 16);
                 const ch = (v >= 32 && v < 127) ? String.fromCharCode(v) : '.';
-                if (cls) {
-                    asciiHtml += `<span class="mem-byte clickable ${cls}" data-addr="${byteAddr}" onclick="window._setMemBreakpoint(${byteAddr})" title="${byteTitle}">${escapeHtml(ch)}</span>`;
-                } else {
-                    asciiHtml += `<span class="mem-byte clickable" data-addr="${byteAddr}" onclick="window._setMemBreakpoint(${byteAddr})" title="${byteTitle}">${escapeHtml(ch)}</span>`;
-                }
+                asciiHtml += `<span class="${fullCls}" data-addr="${byteAddr}" onclick="window._setMemBreakpoint(${byteAddr})" title="${byteTitle}">${escapeHtml(ch)}</span>`;
             }
         }
         output += `<span class="mem-addr-col">${addrStr}</span>  ${hexHtml} |${asciiHtml}|\n`;
@@ -4394,12 +4559,28 @@ function resolveFunctionAtAddr(addr) {
     return best;
 }
 
+/** Find a string at the given VA from ELF/PE extracted strings. Returns preview or null. */
+function findStringAtVa(va, strings) {
+    if (!strings || !Number.isFinite(va)) return null;
+    for (const s of strings) {
+        const start = Number(s.va);
+        if (start === 0) continue;
+        const len = Number(s.length) || 0;
+        if (len > 0 && va >= start && va < start + len) return s.preview || null;
+        if (len === 0 && va === start) return s.preview || null;
+    }
+    return null;
+}
+
 function renderDisasm() {
     if (!emulator) return;
 
     const ripNum = disasmOverrideAddr !== null ? disasmOverrideAddr : emulator.get_rip_num();
     const json = emulator.disasm_range(ripNum, DISASM_LINES);
     const instrs = JSON.parse(json);
+
+    const struct = _lastElfStructure || _lastPeStructure;
+    const stringsForRef = (struct && struct.strings) ? struct.strings : [];
 
     const disasmLines = instrs.map(instr => ({ addr: instr.addr, text: instr.text }));
     if (disasmSearchQuery.trim()) {
@@ -4479,6 +4660,13 @@ function renderDisasm() {
             html += `<span class="disasm-arrow">&larr;</span>`;
         }
         html += `</div>`;
+        // String reference: instruction loads/refers to a known string
+        if (instr.data_ref != null) {
+            const strPreview = findStringAtVa(Number(instr.data_ref), stringsForRef);
+            if (strPreview) {
+                html += `<div class="disasm-annotation disasm-string-ref" data-addr="${addrNum}" title="References string at ${instr.data_ref}">; "${escapeHtml(strPreview)}"</div>`;
+            }
+        }
         // User comment for this address
         if (addrKey && comments[addrKey]) {
             html += `<div class="disasm-annotation disasm-comment" data-addr="${addrNum}">; ${escapeHtml(comments[addrKey])}</div>`;
@@ -5042,6 +5230,8 @@ function renderTraceDisasm(traceIdx) {
     const isSyscallAtCursor = emulator.get_trace_entry_is_syscall(traceIdx);
     const bookmarks = getBookmarks();
     const comments = getComments();
+    const structTrace = _lastElfStructure || _lastPeStructure;
+    const stringsForRefTrace = (structTrace && structTrace.strings) ? structTrace.strings : [];
 
     let html = '';
     let lastSrcLine = null;
@@ -5085,6 +5275,12 @@ function renderTraceDisasm(traceIdx) {
             html += `<span class="disasm-arrow">&larr;</span>`;
         }
         html += `</div>`;
+        if (instr.data_ref != null) {
+            const strPreview = findStringAtVa(Number(instr.data_ref), stringsForRefTrace);
+            if (strPreview) {
+                html += `<div class="disasm-annotation disasm-string-ref" data-addr="${addrNum}" title="References string at ${instr.data_ref}">; "${escapeHtml(strPreview)}"</div>`;
+            }
+        }
         if (addrKey && comments[addrKey]) {
             html += `<div class="disasm-annotation disasm-comment" data-addr="${addrNum}">; ${escapeHtml(comments[addrKey])}</div>`;
         }
