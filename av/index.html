@@ -737,7 +737,14 @@ rule HelloWorld {
             if (!batchRes.ok) throw new Error('LFS batch failed: ' + batchRes.status);
             const batchJson = await batchRes.json();
             const obj = batchJson.objects && batchJson.objects[0];
-            if (!obj || obj.error) throw new Error(obj && obj.error && obj.error.message || 'LFS batch returned no download');
+            if (!obj || obj.error) {
+                const msg = obj && obj.error && obj.error.message;
+                const code = obj && obj.error && obj.error.code;
+                if (code === 404 || (msg && msg.toLowerCase().includes('does not exist'))) {
+                    throw new Error('Git LFS object not found on server (the file may not have been pushed to LFS). Use same-origin data/clamav-db.zip (run scripts/zip-data.sh) or drop a zip here.');
+                }
+                throw new Error(msg || 'LFS batch returned no download');
+            }
             const downloadAction = obj.actions && obj.actions.download;
             if (!downloadAction || !downloadAction.href) throw new Error('LFS batch: no download href');
             const downloadUrl = downloadAction.href;
