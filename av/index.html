@@ -318,11 +318,7 @@
                 </div>
                 <div class="one-click-wrap">
                     <button type="button" class="btn primary" id="oneclick-btn" data-i18n="index.oneClick">Download & load ClamAV DBs (one click)</button>
-                    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:0.8rem;color:var(--text-dim);cursor:pointer;">
-                        <input type="checkbox" id="use-cors-proxy">
-                        <span data-i18n="index.useCors">Use CORS proxy (if you get CORS / strict-origin errors locally)</span>
-                    </label>
-                    <div class="progress-text" style="margin-top:6px;opacity:0.8" data-i18n="index.downloadNote">Uses clamav-db.zip from same-origin /data if present; else downloads main.cvd, daily.cvd, bytecode.cvd from mirrors. ~100 MB.</div>
+                    <div class="progress-text" style="margin-top:6px;opacity:0.8" data-i18n="index.downloadNote">Fetches data/clamav-db.zip from the same origin (no external fetch). Run scripts/zip-data.sh to create the zip.</div>
                     <div class="progress-wrap" id="oneclick-progress">
                         <div class="progress-bar"><div class="fill" id="oneclick-fill" style="width:0%"></div></div>
                         <div class="progress-text" id="oneclick-text" data-i18n="index.downloading">Downloading…</div>
@@ -678,28 +674,21 @@ rule HelloWorld {
             input.addEventListener('change', () => handler(input.files));
         }
 
-        // ClamAV blocks direct HTTP (403); we try local data/ then mirrors. Prefer a single zip when available.
+        // One-click loads only from same-origin data/clamav-db.zip (no external fetch).
         const CLAMAV_ZIP_NAME = 'clamav-db.zip';
-        const CLAMAV_FILES = ['main.cvd', 'daily.cvd', 'bytecode.cvd'];
         const SIG_EXTENSIONS = new Set(['.cvd', '.cld', '.hdb', '.hsb', '.ndb', '.ldb', '.ldu', '.mdb', '.msb', '.fp', '.sfp', '.cdb', '.cbc']);
-        function getClamAvMirrors() {
-            const mirrors = [];
-            // Same-origin /data (server run from repo root with data/ at root)
+
+        /** URLs to try for data/clamav-db.zip (same-origin and relative data/ only). */
+        function getDataZipUrls() {
+            const urls = [];
             if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:')) {
-                mirrors.push(`${window.location.origin}/data`);
+                urls.push(`${window.location.origin}/data/${CLAMAV_ZIP_NAME}`);
             }
-            // Relative data/ (e.g. server from www/ with data in www/data/)
             try {
-                mirrors.push(new URL('data', window.location.href).href.replace(/\/?$/, ''));
+                urls.push(new URL(CLAMAV_ZIP_NAME, new URL('data/', window.location.href)).href);
             } catch (_) {}
-            mirrors.push(
-                'https://database.clamav.net',
-                'https://db.it.clamav.net',
-                'https://mirror.cs.utah.edu/pub/clamav',
-            );
-            return mirrors;
+            return urls;
         }
-        const CORS_PROXY = 'https://corsproxy.io/?';
 
         function hasSigExtension(name) {
             const i = name.lastIndexOf('.');
@@ -736,62 +725,6 @@ rule HelloWorld {
             return entries;
         }
 
-        /** Try to get zip URL for each mirror; returns null if none available. */
-        function getClamAvZipUrls() {
-            const bases = getClamAvMirrors();
-            return bases.map(b => `${b.replace(/\/$/, '')}/${CLAMAV_ZIP_NAME}`);
-        }
-
-        function buildFetchUrl(mirrorBase, path, useProxy) {
-            const url = `${mirrorBase.replace(/\/$/, '')}/${path}`;
-            return useProxy ? CORS_PROXY + encodeURIComponent(url) : url;
-        }
-
-        async function downloadWithProgress(url, onProgress) {
-            const res = await fetch(url, { mode: 'cors', referrerPolicy: 'no-referrer' });
-            if (!res.ok) throw new Error(res.status);
-            const total = res.headers.get('Content-Length');
-            const totalBytes = total ? parseInt(total, 10) : null;
-            const reader = res.body.getReader();
-            const chunks = [];
-            let received = 0;
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                received += value.length;
-                if (onProgress) onProgress(received, totalBytes);
-            }
-            const data = new Uint8Array(received);
-            let offset = 0;
-            for (const c of chunks) { data.set(c, offset); offset += c.length; }
-            return data;
-        }
-
-        function isSameOriginUrl(mirrorBase, path) {
-            try {
-                const u = `${mirrorBase.replace(/\/$/, '')}/${path}`;
-                return new URL(u).origin === window.location.origin;
-            } catch (_) { return false; }
-        }
-
-        async function downloadOneFile(name, onProgress) {
-            const useProxy = document.getElementById('use-cors-proxy').checked;
-            const mirrors = getClamAvMirrors();
-            let lastErr = null;
-            for (const mirror of mirrors) {
-                // Never use CORS proxy for same-origin URLs (proxy cannot reach localhost)
-                const url = buildFetchUrl(mirror, name, useProxy && !isSameOriginUrl(mirror, name));
-                try {
-                    return await downloadWithProgress(url, onProgress);
-                } catch (e) {
-                    lastErr = e;
-                    continue;
-                }
-            }
-            throw lastErr || new Error('All mirrors failed');
-        }
-
         async function oneClickLoadClamAv() {
             const btn = document.getElementById('oneclick-btn');
             const progressWrap = document.getElementById('oneclick-progress');
@@ -806,17 +739,16 @@ rule HelloWorld {
             progressWrap.classList.add('active');
 
             try {
-                const useProxy = document.getElementById('use-cors-proxy').checked;
-                const zipUrls = getClamAvZipUrls();
+                const zipUrls = getDataZipUrls();
+                if (zipUrls.length === 0) {
+                    throw new Error('No data/ URL available (open the app from a server, not file://)');
+                }
                 let zipLoaded = false;
-                for (let i = 0; i < zipUrls.length && !zipLoaded; i++) {
-                    const url = zipUrls[i];
-                    const zipBase = url.replace(/\/[^/]*$/, '');
-                    const useProxyForZip = useProxy && !isSameOriginUrl(zipBase, CLAMAV_ZIP_NAME);
-                    const finalUrl = useProxyForZip ? CORS_PROXY + encodeURIComponent(url) : url;
+                let lastErr = null;
+                for (const url of zipUrls) {
                     try {
                         statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.downloading') + ' ' + CLAMAV_ZIP_NAME + '…</span>';
-                        const entries = await fetchZipAndExtract(finalUrl, (received, totalBytes) => {
+                        const entries = await fetchZipAndExtract(url, (received, totalBytes) => {
                             if (totalBytes != null && totalBytes > 0) {
                                 const pct = Math.min(100, Math.round((received / totalBytes) * 100));
                                 fill.style.width = pct + '%';
@@ -825,7 +757,7 @@ rule HelloWorld {
                                 textEl.textContent = CLAMAV_ZIP_NAME + ': ' + formatSize(received);
                             }
                         });
-                        if (entries.length === 0) continue;
+                        if (entries.length === 0) { lastErr = new Error('No signature files in zip'); continue; }
                         zipLoaded = true;
                         for (const entry of entries) {
                             statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.loading') + ' ' + entry.name + '…</span>';
@@ -838,35 +770,13 @@ rule HelloWorld {
                             updateStats(stats);
                         }
                         break;
-                    } catch (_) { continue; }
-                }
-
-                if (!zipLoaded) {
-                    for (const name of CLAMAV_FILES) {
-                        fill.style.width = '0%';
-                        textEl.textContent = t('index.downloading') + ' ' + name + '…';
-                        statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.downloading') + ' ' + name + '…</span>';
-
-                        const data = await downloadOneFile(name, (received, totalBytes) => {
-                            if (totalBytes != null && totalBytes > 0) {
-                                const pct = Math.min(100, Math.round((received / totalBytes) * 100));
-                                fill.style.width = pct + '%';
-                                textEl.textContent = `${name}: ${formatSize(received)} / ${formatSize(totalBytes)} (${pct}%)`;
-                            } else {
-                                textEl.textContent = `${name}: ${formatSize(received)}`;
-                            }
-                        });
-
-                        statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.loading') + ' ' + name + '…</span>';
-                        textEl.textContent = t('index.loading') + ' ' + name + '…';
-                        fill.style.width = '100%';
-                        await new Promise(r => setTimeout(r, 5));
-
-                        const statsJson = scanner.loadDatabase(name, data);
-                        const stats = JSON.parse(statsJson);
-                        totalSigs = stats.total;
-                        updateStats(stats);
+                    } catch (e) {
+                        lastErr = e;
+                        continue;
                     }
+                }
+                if (!zipLoaded) {
+                    throw lastErr || new Error('Could not load ' + CLAMAV_ZIP_NAME + ' from data/');
                 }
 
                 textEl.textContent = t('index.buildAutomata');
@@ -879,13 +789,7 @@ rule HelloWorld {
             } catch (e) {
                 progressWrap.classList.remove('active');
                 errorEl.style.display = 'block';
-                const is403 = String(e.message).includes('403');
-                const isCors = String(e).includes('CORS') || String(e).includes('Failed to fetch');
-                if (is403 || isCors) {
-                    errorEl.innerHTML = 'ClamAV blocks direct HTTP downloads (403). Use freshclam or cvdupdate to download the databases, then drag main.cvd, daily.cvd, bytecode.cvd here.';
-                } else {
-                    errorEl.textContent = e.message || String(e);
-                }
+                errorEl.textContent = e.message || String(e);
                 statusBar.innerHTML = '<div class="dot"></div><span>' + t('index.downloadFailed') + '</span>';
             } finally {
                 btn.disabled = false;
