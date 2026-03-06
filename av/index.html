@@ -679,6 +679,7 @@ rule HelloWorld {
         /** Fallback: zip in repo 42bzh/69bzh.github.io, av/data/clamav-db.zip (Git LFS). */
         const CLAMAV_ZIP_GITHUB_RAW = 'https://raw.githubusercontent.com/42bzh/69bzh.github.io/main/av/data/clamav-db.zip';
         const SIG_EXTENSIONS = new Set(['.cvd', '.cld', '.hdb', '.hsb', '.ndb', '.ldb', '.ldu', '.mdb', '.msb', '.fp', '.sfp', '.cdb', '.cbc']);
+        const CORS_PROXY = 'https://corsproxy.io/?';
 
         /** URLs to try for clamav-db.zip: same-origin data/, then relative data/, then GitHub raw. */
         function getDataZipUrls() {
@@ -698,7 +699,67 @@ rule HelloWorld {
             return i >= 0 && SIG_EXTENSIONS.has(name.slice(i).toLowerCase());
         }
 
-        /** Fetch a zip from url, extract entries with signature extensions; returns [{ name, data }]. */
+        /** Parse Git LFS pointer (version, oid, size); returns { oid, size } or null. */
+        function parseLfsPointer(text) {
+            if (!text || typeof text !== 'string') return null;
+            const lines = text.trim().split(/\r?\n/);
+            if (lines.length < 3) return null;
+            const version = lines[0];
+            if (!version.startsWith('version https://git-lfs.github.com/spec/v1')) return null;
+            let oid = null, size = null;
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i].startsWith('oid ')) oid = lines[i].slice(4).trim();
+                else if (lines[i].startsWith('size ')) size = parseInt(lines[i].slice(5).trim(), 10);
+            }
+            if (oid && !isNaN(size) && size > 0) return { oid, size };
+            return null;
+        }
+
+        /** Resolve GitHub LFS pointer via Batch API; returns blob of actual file. See https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md */
+        async function resolveGitHubLfs(rawUrl, pointerBlob, onProgress) {
+            const text = await pointerBlob.text();
+            const parsed = parseLfsPointer(text);
+            if (!parsed) throw new Error('Invalid LFS pointer');
+            const m = rawUrl.match(/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\//);
+            if (!m) throw new Error('Could not derive repo from URL');
+            const [, owner, repo] = m;
+            const batchUrl = `https://github.com/${owner}/${repo}.git/info/lfs/objects/batch`;
+            const batchBody = JSON.stringify({
+                operation: 'download',
+                objects: [{ oid: parsed.oid, size: parsed.size }]
+            });
+            const batchRes = await fetch(CORS_PROXY + encodeURIComponent(batchUrl), {
+                method: 'POST',
+                mode: 'cors',
+                headers: { 'Accept': 'application/vnd.git-lfs+json', 'Content-Type': 'application/vnd.git-lfs+json' },
+                body: batchBody
+            });
+            if (!batchRes.ok) throw new Error('LFS batch failed: ' + batchRes.status);
+            const batchJson = await batchRes.json();
+            const obj = batchJson.objects && batchJson.objects[0];
+            if (!obj || obj.error) throw new Error(obj && obj.error && obj.error.message || 'LFS batch returned no download');
+            const downloadAction = obj.actions && obj.actions.download;
+            if (!downloadAction || !downloadAction.href) throw new Error('LFS batch: no download href');
+            const downloadUrl = downloadAction.href;
+            const downloadRes = await fetch(CORS_PROXY + encodeURIComponent(downloadUrl), { mode: 'cors', referrerPolicy: 'no-referrer' });
+            if (!downloadRes.ok) throw new Error('LFS download failed: ' + downloadRes.status);
+            const total = downloadRes.headers.get('Content-Length');
+            const totalBytes = total ? parseInt(total, 10) : null;
+            const reader = downloadRes.body.getReader();
+            const chunks = [];
+            let received = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.length;
+                if (onProgress) onProgress(received, totalBytes || parsed.size);
+            }
+            const blob = new Blob(chunks);
+            return blob;
+        }
+
+        /** Fetch a zip from url, extract entries with signature extensions; returns [{ name, data }]. Resolves Git LFS pointer when needed. */
         async function fetchZipAndExtract(url, onProgress) {
             const res = await fetch(url, { mode: 'cors', referrerPolicy: 'no-referrer' });
             if (!res.ok) throw new Error(res.status);
@@ -714,7 +775,13 @@ rule HelloWorld {
                 received += value.length;
                 if (onProgress) onProgress(received, totalBytes);
             }
-            const blob = new Blob(chunks);
+            let blob = new Blob(chunks);
+            if (blob.size < 256 && url.includes('raw.githubusercontent.com')) {
+                const text = await blob.slice(0, 200).text();
+                if (parseLfsPointer(text)) {
+                    blob = await resolveGitHubLfs(url, blob, onProgress);
+                }
+            }
             if (typeof JSZip === 'undefined') throw new Error('JSZip not loaded');
             const zip = await JSZip.loadAsync(blob);
             const entries = [];
