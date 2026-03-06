@@ -314,7 +314,7 @@
                 <div class="drop-zone" id="sig-drop">
                     <p data-i18n="index.dropSig">Drop signature files here or click to browse</p>
                     <div class="formats" data-i18n="index.formatsSig">.cvd .cld .hdb .hsb .ndb .ldb .mdb .msb .fp .sfp .cdb .cbc</div>
-                    <input type="file" id="sig-input" multiple accept=".cvd,.cld,.hdb,.hsb,.ndb,.ldb,.ldu,.mdb,.msb,.fp,.sfp,.cdb,.cbc">
+                    <input type="file" id="sig-input" multiple accept=".cvd,.cld,.hdb,.hsb,.ndb,.ldb,.ldu,.mdb,.msb,.fp,.sfp,.cdb,.cbc,.zip">
                 </div>
                 <div class="one-click-wrap">
                     <button type="button" class="btn primary" id="oneclick-btn" data-i18n="index.oneClick">Download & load ClamAV DBs (one click)</button>
@@ -322,7 +322,7 @@
                         <input type="checkbox" id="use-cors-proxy">
                         <span data-i18n="index.useCors">Use CORS proxy (if you get CORS / strict-origin errors locally)</span>
                     </label>
-                    <div class="progress-text" style="margin-top:6px;opacity:0.8" data-i18n="index.downloadNote">Downloads main.cvd, daily.cvd, bytecode.cvd from database.clamav.net — extract & load. ~100 MB total.</div>
+                    <div class="progress-text" style="margin-top:6px;opacity:0.8" data-i18n="index.downloadNote">Uses clamav-db.zip from same-origin /data if present; else downloads main.cvd, daily.cvd, bytecode.cvd from mirrors. ~100 MB.</div>
                     <div class="progress-wrap" id="oneclick-progress">
                         <div class="progress-bar"><div class="fill" id="oneclick-fill" style="width:0%"></div></div>
                         <div class="progress-text" id="oneclick-text" data-i18n="index.downloading">Downloading…</div>
@@ -427,6 +427,7 @@
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script type="module">
         import init, { BrowserScanner } from './pkg/mimic_browser.js';
 
@@ -472,6 +473,7 @@ rule HelloWorld {
             { name: 'aho-corasick', url: 'https://github.com/BurntSushi/aho-corasick', license: 'MIT / Apache-2.0', desc: 'Multi-pattern matching (signature engine).' },
             { name: 'flate2', url: 'https://github.com/rust-lang/flate2-rs', license: 'MIT / Apache-2.0', desc: 'CVD/CLD decompression.' },
             { name: 'tar', url: 'https://github.com/alexcrichton/tar-rs', license: 'MIT / Apache-2.0', desc: 'Archive handling for ClamAV databases.' },
+            { name: 'JSZip', url: 'https://stuk.github.io/jszip/', license: 'MIT', desc: 'ZIP extraction in the browser (fetch & load ClamAV DB zip).' },
         ];
 
         const t = (key) => (window.MimicI18n && window.MimicI18n.t(key)) || key;
@@ -676,8 +678,10 @@ rule HelloWorld {
             input.addEventListener('change', () => handler(input.files));
         }
 
-        // ClamAV blocks direct HTTP (403); we try local data/ then mirrors
+        // ClamAV blocks direct HTTP (403); we try local data/ then mirrors. Prefer a single zip when available.
+        const CLAMAV_ZIP_NAME = 'clamav-db.zip';
         const CLAMAV_FILES = ['main.cvd', 'daily.cvd', 'bytecode.cvd'];
+        const SIG_EXTENSIONS = new Set(['.cvd', '.cld', '.hdb', '.hsb', '.ndb', '.ldb', '.ldu', '.mdb', '.msb', '.fp', '.sfp', '.cdb', '.cbc']);
         function getClamAvMirrors() {
             const mirrors = [];
             // Same-origin /data (server run from repo root with data/ at root)
@@ -696,6 +700,47 @@ rule HelloWorld {
             return mirrors;
         }
         const CORS_PROXY = 'https://corsproxy.io/?';
+
+        function hasSigExtension(name) {
+            const i = name.lastIndexOf('.');
+            return i >= 0 && SIG_EXTENSIONS.has(name.slice(i).toLowerCase());
+        }
+
+        /** Fetch a zip from url, extract entries with signature extensions; returns [{ name, data }]. */
+        async function fetchZipAndExtract(url, onProgress) {
+            const res = await fetch(url, { mode: 'cors', referrerPolicy: 'no-referrer' });
+            if (!res.ok) throw new Error(res.status);
+            const total = res.headers.get('Content-Length');
+            const totalBytes = total ? parseInt(total, 10) : null;
+            const reader = res.body.getReader();
+            const chunks = [];
+            let received = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.length;
+                if (onProgress) onProgress(received, totalBytes);
+            }
+            const blob = new Blob(chunks);
+            if (typeof JSZip === 'undefined') throw new Error('JSZip not loaded');
+            const zip = await JSZip.loadAsync(blob);
+            const entries = [];
+            for (const [path, entry] of Object.entries(zip.files)) {
+                if (entry.dir) continue;
+                const name = path.split('/').pop() || path;
+                if (!hasSigExtension(name)) continue;
+                const ab = await entry.async('arraybuffer');
+                entries.push({ name, data: new Uint8Array(ab) });
+            }
+            return entries;
+        }
+
+        /** Try to get zip URL for each mirror; returns null if none available. */
+        function getClamAvZipUrls() {
+            const bases = getClamAvMirrors();
+            return bases.map(b => `${b.replace(/\/$/, '')}/${CLAMAV_ZIP_NAME}`);
+        }
 
         function buildFetchUrl(mirrorBase, path, useProxy) {
             const url = `${mirrorBase.replace(/\/$/, '')}/${path}`;
@@ -761,30 +806,67 @@ rule HelloWorld {
             progressWrap.classList.add('active');
 
             try {
-                for (const name of CLAMAV_FILES) {
-                    fill.style.width = '0%';
-                    textEl.textContent = t('index.downloading') + ' ' + name + '…';
-                    statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.downloading') + ' ' + name + '…</span>';
-
-                    const data = await downloadOneFile(name, (received, totalBytes) => {
-                        if (totalBytes != null && totalBytes > 0) {
-                            const pct = Math.min(100, Math.round((received / totalBytes) * 100));
-                            fill.style.width = pct + '%';
-                            textEl.textContent = `${name}: ${formatSize(received)} / ${formatSize(totalBytes)} (${pct}%)`;
-                        } else {
-                            textEl.textContent = `${name}: ${formatSize(received)}`;
+                const useProxy = document.getElementById('use-cors-proxy').checked;
+                const zipUrls = getClamAvZipUrls();
+                let zipLoaded = false;
+                for (let i = 0; i < zipUrls.length && !zipLoaded; i++) {
+                    const url = zipUrls[i];
+                    const zipBase = url.replace(/\/[^/]*$/, '');
+                    const useProxyForZip = useProxy && !isSameOriginUrl(zipBase, CLAMAV_ZIP_NAME);
+                    const finalUrl = useProxyForZip ? CORS_PROXY + encodeURIComponent(url) : url;
+                    try {
+                        statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.downloading') + ' ' + CLAMAV_ZIP_NAME + '…</span>';
+                        const entries = await fetchZipAndExtract(finalUrl, (received, totalBytes) => {
+                            if (totalBytes != null && totalBytes > 0) {
+                                const pct = Math.min(100, Math.round((received / totalBytes) * 100));
+                                fill.style.width = pct + '%';
+                                textEl.textContent = CLAMAV_ZIP_NAME + ': ' + formatSize(received) + ' / ' + formatSize(totalBytes) + ' (' + pct + '%)';
+                            } else {
+                                textEl.textContent = CLAMAV_ZIP_NAME + ': ' + formatSize(received);
+                            }
+                        });
+                        if (entries.length === 0) continue;
+                        zipLoaded = true;
+                        for (const entry of entries) {
+                            statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.loading') + ' ' + entry.name + '…</span>';
+                            textEl.textContent = t('index.loading') + ' ' + entry.name + '…';
+                            fill.style.width = '100%';
+                            await new Promise(r => setTimeout(r, 5));
+                            const statsJson = scanner.loadDatabase(entry.name, entry.data);
+                            const stats = JSON.parse(statsJson);
+                            totalSigs = stats.total;
+                            updateStats(stats);
                         }
-                    });
+                        break;
+                    } catch (_) { continue; }
+                }
 
-                    statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.loading') + ' ' + name + '…</span>';
-                    textEl.textContent = t('index.loading') + ' ' + name + '…';
-                    fill.style.width = '100%';
-                    await new Promise(r => setTimeout(r, 5));
+                if (!zipLoaded) {
+                    for (const name of CLAMAV_FILES) {
+                        fill.style.width = '0%';
+                        textEl.textContent = t('index.downloading') + ' ' + name + '…';
+                        statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.downloading') + ' ' + name + '…</span>';
 
-                    const statsJson = scanner.loadDatabase(name, data);
-                    const stats = JSON.parse(statsJson);
-                    totalSigs = stats.total;
-                    updateStats(stats);
+                        const data = await downloadOneFile(name, (received, totalBytes) => {
+                            if (totalBytes != null && totalBytes > 0) {
+                                const pct = Math.min(100, Math.round((received / totalBytes) * 100));
+                                fill.style.width = pct + '%';
+                                textEl.textContent = `${name}: ${formatSize(received)} / ${formatSize(totalBytes)} (${pct}%)`;
+                            } else {
+                                textEl.textContent = `${name}: ${formatSize(received)}`;
+                            }
+                        });
+
+                        statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.loading') + ' ' + name + '…</span>';
+                        textEl.textContent = t('index.loading') + ' ' + name + '…';
+                        fill.style.width = '100%';
+                        await new Promise(r => setTimeout(r, 5));
+
+                        const statsJson = scanner.loadDatabase(name, data);
+                        const stats = JSON.parse(statsJson);
+                        totalSigs = stats.total;
+                        updateStats(stats);
+                    }
                 }
 
                 textEl.textContent = t('index.buildAutomata');
@@ -810,19 +892,49 @@ rule HelloWorld {
             }
         }
 
+        /** Extract signature files from a zip File; returns [{ name, data }]. */
+        async function extractSigEntriesFromZip(file) {
+            if (typeof JSZip === 'undefined') throw new Error('JSZip not loaded');
+            const blob = new Blob([await file.arrayBuffer()]);
+            const zip = await JSZip.loadAsync(blob);
+            const entries = [];
+            for (const [path, entry] of Object.entries(zip.files)) {
+                if (entry.dir) continue;
+                const name = path.split('/').pop() || path;
+                if (!hasSigExtension(name)) continue;
+                const ab = await entry.async('arraybuffer');
+                entries.push({ name, data: new Uint8Array(ab) });
+            }
+            return entries;
+        }
+
         async function handleSigFiles(files) {
             const statusBar = document.getElementById('sig-status');
             statusBar.innerHTML = '<div class="dot loading"></div><span>' + t('index.loading') + ' signatures...</span>';
 
+            const toLoad = [];
             for (const file of files) {
-                const data = new Uint8Array(await file.arrayBuffer());
+                const name = (file.name || '').toLowerCase();
+                if (name.endsWith('.zip')) {
+                    try {
+                        const entries = await extractSigEntriesFromZip(file);
+                        toLoad.push(...entries);
+                    } catch (e) {
+                        console.error('Failed to extract zip ' + file.name + ':', e);
+                    }
+                } else {
+                    const data = new Uint8Array(await file.arrayBuffer());
+                    toLoad.push({ name: file.name, data });
+                }
+            }
+            for (const { name, data } of toLoad) {
                 try {
-                    const statsJson = scanner.loadDatabase(file.name, data);
+                    const statsJson = scanner.loadDatabase(name, data);
                     const stats = JSON.parse(statsJson);
                     totalSigs = stats.total;
                     updateStats(stats);
                 } catch (e) {
-                    console.error(`Failed to load ${file.name}:`, e);
+                    console.error('Failed to load ' + name + ':', e);
                 }
             }
 
