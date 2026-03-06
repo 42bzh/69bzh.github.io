@@ -724,32 +724,53 @@ rule HelloWorld {
             if (!m) throw new Error('Could not derive repo from URL');
             const [, owner, repo] = m;
             const batchUrl = `https://github.com/${owner}/${repo}.git/info/lfs/objects/batch`;
-            const batchBody = JSON.stringify({
-                operation: 'download',
-                objects: [{ oid: parsed.oid, size: parsed.size }]
-            });
-            const batchRes = await fetch(CORS_PROXY + encodeURIComponent(batchUrl), {
-                method: 'POST',
-                mode: 'cors',
-                headers: { 'Accept': 'application/vnd.git-lfs+json', 'Content-Type': 'application/vnd.git-lfs+json' },
-                body: batchBody
-            });
-            if (!batchRes.ok) throw new Error('LFS batch failed: ' + batchRes.status);
-            const batchJson = await batchRes.json();
+            const headers = { 'Accept': 'application/vnd.git-lfs+json', 'Content-Type': 'application/vnd.git-lfs+json' };
+            const oidVariants = [parsed.oid];
+            if (parsed.oid.startsWith('sha256:')) oidVariants.push(parsed.oid.slice(7));
+            else oidVariants.push('sha256:' + parsed.oid);
+            let batchRes = null;
+            let batchJson = null;
+            for (const oid of oidVariants) {
+                const batchBody = JSON.stringify({
+                    operation: 'download',
+                    objects: [{ oid: oid, size: parsed.size }]
+                });
+                const tryFetch = (url) => fetch(url, { method: 'POST', mode: 'cors', headers, body: batchBody });
+                try {
+                    batchRes = await tryFetch(batchUrl);
+                } catch (_) {
+                    try {
+                        batchRes = await tryFetch(CORS_PROXY + encodeURIComponent(batchUrl));
+                    } catch (_) {
+                        continue;
+                    }
+                }
+                if (!batchRes.ok) continue;
+                batchJson = await batchRes.json();
+                const obj0 = batchJson.objects && batchJson.objects[0];
+                if (obj0 && !obj0.error && obj0.actions && obj0.actions.download) break;
+                batchJson = null;
+            }
+            if (!batchJson) throw new Error('LFS batch failed or object not found. Try: git lfs push --all origin');
             const obj = batchJson.objects && batchJson.objects[0];
             if (!obj || obj.error) {
                 const msg = obj && obj.error && obj.error.message;
                 const code = obj && obj.error && obj.error.code;
                 if (code === 404 || (msg && msg.toLowerCase().includes('does not exist'))) {
-                    throw new Error('Git LFS object not found on server (the file may not have been pushed to LFS). Use same-origin data/clamav-db.zip (run scripts/zip-data.sh) or drop a zip here.');
+                    throw new Error('Git LFS object not found. Ensure you ran: git lfs push --all origin (and wait 1–2 min). Or use same-origin data/clamav-db.zip or drop a zip.');
                 }
                 throw new Error(msg || 'LFS batch returned no download');
             }
             const downloadAction = obj.actions && obj.actions.download;
             if (!downloadAction || !downloadAction.href) throw new Error('LFS batch: no download href');
             const downloadUrl = downloadAction.href;
-            const downloadRes = await fetch(CORS_PROXY + encodeURIComponent(downloadUrl), { mode: 'cors', referrerPolicy: 'no-referrer' });
-            if (!downloadRes.ok) throw new Error('LFS download failed: ' + downloadRes.status);
+            let downloadRes = null;
+            try {
+                downloadRes = await fetch(downloadUrl, { mode: 'cors', referrerPolicy: 'no-referrer' });
+            } catch (_) {
+                downloadRes = await fetch(CORS_PROXY + encodeURIComponent(downloadUrl), { mode: 'cors', referrerPolicy: 'no-referrer' });
+            }
+            if (!downloadRes || !downloadRes.ok) throw new Error('LFS download failed: ' + (downloadRes && downloadRes.status));
             const total = downloadRes.headers.get('Content-Length');
             const totalBytes = total ? parseInt(total, 10) : null;
             const reader = downloadRes.body.getReader();
