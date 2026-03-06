@@ -764,10 +764,18 @@ rule HelloWorld {
             const downloadAction = obj.actions && obj.actions.download;
             if (!downloadAction || !downloadAction.href) throw new Error('LFS batch: no download href');
             const downloadUrl = downloadAction.href;
-            // Fetch directly only: GitHub LFS signed URLs return 403 when requested via a CORS proxy.
-            const downloadRes = await fetch(downloadUrl, { mode: 'cors', referrerPolicy: 'no-referrer' });
+            let downloadRes;
+            try {
+                downloadRes = await fetch(downloadUrl, { mode: 'cors', referrerPolicy: 'no-referrer' });
+            } catch (e) {
+                const msg = (e && e.message) || String(e);
+                if (/failed to fetch|networkerror|cors/i.test(msg)) {
+                    throw new Error('LFS download blocked (CORS/network). Use same-origin data/clamav-db.zip (run scripts/zip-data.sh and serve from that host) or drop a zip file here.');
+                }
+                throw e;
+            }
             if (!downloadRes.ok) {
-                throw new Error('LFS download failed (' + downloadRes.status + '). If 403/CORS: serve this app from your GitHub Pages origin (e.g. 69bzh.github.io) or use data/clamav-db.zip / drop a zip.');
+                throw new Error('LFS download failed (' + downloadRes.status + '). Use same-origin data/clamav-db.zip or drop a zip file here.');
             }
             const total = downloadRes.headers.get('Content-Length');
             const totalBytes = total ? parseInt(total, 10) : null;
@@ -885,7 +893,11 @@ rule HelloWorld {
             } catch (e) {
                 progressWrap.classList.remove('active');
                 errorEl.style.display = 'block';
-                errorEl.textContent = e.message || String(e);
+                let errMsg = e.message || String(e);
+                if (/failed to fetch|networkerror|cors/i.test(errMsg) && !/same-origin|drop a zip/i.test(errMsg)) {
+                    errMsg = 'Download blocked (CORS/network). Use same-origin data/clamav-db.zip (run scripts/zip-data.sh and serve from that host) or drop a zip file here.';
+                }
+                errorEl.textContent = errMsg;
                 statusBar.innerHTML = '<div class="dot"></div><span>' + t('index.downloadFailed') + '</span>';
             } finally {
                 btn.disabled = false;
