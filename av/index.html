@@ -764,13 +764,11 @@ rule HelloWorld {
             const downloadAction = obj.actions && obj.actions.download;
             if (!downloadAction || !downloadAction.href) throw new Error('LFS batch: no download href');
             const downloadUrl = downloadAction.href;
-            let downloadRes = null;
-            try {
-                downloadRes = await fetch(downloadUrl, { mode: 'cors', referrerPolicy: 'no-referrer' });
-            } catch (_) {
-                downloadRes = await fetch(CORS_PROXY + encodeURIComponent(downloadUrl), { mode: 'cors', referrerPolicy: 'no-referrer' });
+            // Fetch directly only: GitHub LFS signed URLs return 403 when requested via a CORS proxy.
+            const downloadRes = await fetch(downloadUrl, { mode: 'cors', referrerPolicy: 'no-referrer' });
+            if (!downloadRes.ok) {
+                throw new Error('LFS download failed (' + downloadRes.status + '). If 403/CORS: serve this app from your GitHub Pages origin (e.g. 69bzh.github.io) or use data/clamav-db.zip / drop a zip.');
             }
-            if (!downloadRes || !downloadRes.ok) throw new Error('LFS download failed: ' + (downloadRes && downloadRes.status));
             const total = downloadRes.headers.get('Content-Length');
             const totalBytes = total ? parseInt(total, 10) : null;
             const reader = downloadRes.body.getReader();
