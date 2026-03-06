@@ -674,11 +674,13 @@ rule HelloWorld {
             input.addEventListener('change', () => handler(input.files));
         }
 
-        // One-click loads only from same-origin data/clamav-db.zip (no external fetch).
+        // One-click loads from same-origin data/ or from GitHub (zip stored as LFS).
         const CLAMAV_ZIP_NAME = 'clamav-db.zip';
+        /** Fallback: zip in repo 42bzh/69bzh.github.io, av/data/clamav-db.zip (Git LFS). */
+        const CLAMAV_ZIP_GITHUB_RAW = 'https://raw.githubusercontent.com/42bzh/69bzh.github.io/main/av/data/clamav-db.zip';
         const SIG_EXTENSIONS = new Set(['.cvd', '.cld', '.hdb', '.hsb', '.ndb', '.ldb', '.ldu', '.mdb', '.msb', '.fp', '.sfp', '.cdb', '.cbc']);
 
-        /** URLs to try for data/clamav-db.zip (same-origin and relative data/ only). */
+        /** URLs to try for clamav-db.zip: same-origin data/, then relative data/, then GitHub raw. */
         function getDataZipUrls() {
             const urls = [];
             if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file:')) {
@@ -687,6 +689,7 @@ rule HelloWorld {
             try {
                 urls.push(new URL(CLAMAV_ZIP_NAME, new URL('data/', window.location.href)).href);
             } catch (_) {}
+            urls.push(CLAMAV_ZIP_GITHUB_RAW);
             return urls;
         }
 
