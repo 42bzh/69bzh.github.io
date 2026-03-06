@@ -31,6 +31,7 @@ const TRANSLATIONS = {
         summaryArchLinux: 'x86-64, x86 (i386), ARM64 (AArch64) — static (musl) and dynamic (glibc with sysroot)',
         summaryPlatformWindows: 'Windows (PE)',
         summaryArchWindows: 'x86 (32-bit) — EXE and DLL loading, partial NT syscall emulation. x86-64 not yet supported.',
+        summaryOpenSourceTitle: 'Open source projects used by binb',
 
         // Controls
         btnUpload: 'Upload binary',
@@ -416,6 +417,7 @@ const TRANSLATIONS = {
         summaryArchLinux: 'x86-64, x86 (i386), ARM64 (AArch64) — statique (musl) et dynamique (glibc avec sysroot)',
         summaryPlatformWindows: 'Windows (PE)',
         summaryArchWindows: 'x86 (32 bits) — chargement EXE et DLL, émulation partielle des syscalls NT. x86-64 pas encore pris en charge.',
+        summaryOpenSourceTitle: 'Projets open source utilisés par binb',
         btnUpload: 'Téléverser binaire',
         btnUploadTitle: 'Téléverser ELF ou PE (EXE/DLL)',
         btnSysrootZip: 'Sysroot (ZIP)',
@@ -753,6 +755,7 @@ const TRANSLATIONS = {
         summaryArchLinux: 'x86-64, x86 (i386), ARM64 (AArch64) — statek (musl) ha dinamek (glibc gant sysroot)',
         summaryPlatformWindows: 'Windows (PE)',
         summaryArchWindows: 'x86 (32 bit) — kargadur EXE ha DLL, emuladur tamm ar syscalls NT. x86-64 c\'hoazh digeri.',
+        summaryOpenSourceTitle: 'Raktresoù open source implijet gant binb',
         btnUpload: 'Pellgargañ binari',
         btnUploadTitle: 'Pellgargañ ELF pe PE (EXE/DLL)',
         btnSysrootZip: 'Sysroot (ZIP)',
@@ -1080,6 +1083,7 @@ const TRANSLATIONS = {
         summaryArchLinux: 'x86-64、x86 (i386)、ARM64 (AArch64) — 静态（musl）与动态（glibc + sysroot）',
         summaryPlatformWindows: 'Windows (PE)',
         summaryArchWindows: 'x86（32 位）— EXE 与 DLL 加载，部分 NT 系统调用模拟。x86-64 暂不支持。',
+        summaryOpenSourceTitle: 'binb 使用的开源项目',
         btnUpload: '上传二进制',
         btnUploadTitle: '上传 ELF 或 PE (EXE/DLL)',
         btnSysrootZip: 'Sysroot (ZIP)',
