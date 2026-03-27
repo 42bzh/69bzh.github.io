@@ -303,7 +303,7 @@ function processFile(name, data) {
         dng: ['header','ifd','data','tile','jpeg','warning'],
         pe: ['header','object','section','data'],
         elf: ['header','phdr','section','data'],
-        zip: ['header','file'],
+        zip: ['header','file','data','warning'],
         rar: ['header','file'],
     };
     setLegend(legendTypes[fmt] || []);

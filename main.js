@@ -1071,7 +1071,7 @@ function createEmulator(bytes, opts = {}) {
         isRunning = false;
         lastStoppedAtBreakpoint = false;
         lastMemAccesses = [];
-        terminal.innerHTML = `<span class="info">Binary loaded: ${escapeHtml(elfFileName)}. Use Step (F11) or Continue (F5) to begin.</span>\n`;
+        terminal.innerHTML = `<span class="info">Binary loaded: ${escapeHtml(elfFileName)}. Use Step (F7) or Continue (F5) to begin.</span>\n`;
         straceOutput.innerHTML = '<span class="muted">Syscall trace will appear here when strace is enabled.</span>';
         if (stdinPrompt) stdinPrompt.style.display = 'none';
         setStatus('statusReady');
@@ -1478,26 +1478,43 @@ function setupVfsPanel() {
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────────────
 
+/** True when focus is in a field where letter keys should go to the control (not global shortcuts). */
+function isElementTypingContext(el) {
+    if (!el || el === document.body) return false;
+    if (el.isContentEditable) return true;
+    if (el.closest && el.closest('[contenteditable="true"]')) return true;
+    const tag = el.tagName;
+    if (!tag) return false;
+    const upper = tag.toUpperCase();
+    if (upper === 'TEXTAREA') return true;
+    if (upper === 'SELECT') return true;
+    if (upper !== 'INPUT') return false;
+    const type = (el.type || 'text').toLowerCase();
+    const nonText = new Set([
+        'button', 'submit', 'checkbox', 'radio', 'file', 'reset', 'image', 'hidden', 'range', 'color',
+    ]);
+    return !nonText.has(type);
+}
+
 function setupKeyboard() {
     document.addEventListener('keydown', (e) => {
         if (!emulator) return;
-        // Don't capture keys when user is typing in an input (including memory byte editor)
         const active = document.activeElement;
-        const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
         const isMemByteEdit = active && active.classList && active.classList.contains('mem-byte-edit');
         const isTraceNavKey = (e.key === 'j' || e.key === 'k' || e.key === 'J' || e.key === 'K') && traceMode;
-        if (isInput && !isTraceNavKey) return;
-        if (isMemByteEdit) return; // never steal keys from memory byte editor
+        if (isMemByteEdit) return;
+        const typing = isElementTypingContext(active);
+        if (typing && !isTraceNavKey) return;
 
         if (e.key === 'F5') {
             e.preventDefault();
             if (traceMode) { exitTraceMode(); }
             if (!emulator.is_exited()) doContinue();
-        } else if (e.key === 'F10') {
+        } else if (e.key === 'F6') {
             e.preventDefault();
             if (traceMode) { exitTraceMode(); }
             if (!emulator.is_exited()) doStepOver();
-        } else if (e.key === 'F11') {
+        } else if (e.key === 'F7') {
             e.preventDefault();
             if (traceMode) { exitTraceMode(); }
             if (!emulator.is_exited()) doStep();
@@ -1537,7 +1554,7 @@ function setupKeyboard() {
             const idx = emulator.next_trace_by_register(focusedGprIndex, traceCursor);
             if (idx >= 0) seekTrace(idx);
         }
-    });
+    }, true);
 }
 
 // ── QIRA-style navigation ───────────────────────────────────────────────────

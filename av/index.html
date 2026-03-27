@@ -217,6 +217,8 @@
         .error-msg { font-size: 0.8rem; color: var(--red); margin-top: 8px; line-height: 1.4; }
         .error-msg code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
         .plugins label { display: block; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 4px; }
+        .plugins .checkbox-label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-weight: 500; color: var(--text); }
+        .plugins .checkbox-label input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
         .plugins input[type="text"] {
             width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border);
             background: var(--surface2); color: var(--text); font-size: 0.85rem; margin-bottom: 12px;
@@ -318,7 +320,7 @@
                 </div>
                 <div class="one-click-wrap">
                     <button type="button" class="btn primary" id="oneclick-btn" data-i18n="index.oneClick">Download & load ClamAV DBs (one click)</button>
-                    <div class="progress-text" style="margin-top:6px;opacity:0.8" data-i18n="index.downloadNote">Fetches data/clamav-db.zip from the same origin (no external fetch). Run scripts/zip-data.sh to create the zip.</div>
+                    <div class="progress-text" style="margin-top:6px;opacity:0.9;max-width:42em;" data-i18n="index.downloadNote">If one-click fails (e.g. CORS): (1) Run ./scripts/zip-data.sh in crates/mimic-browser, then serve this app from that host so data/clamav-db.zip is same-origin; or (2) Drop clamav-db.zip (or individual .cvd files) in the zone above.</div>
                     <div class="progress-wrap" id="oneclick-progress">
                         <div class="progress-bar"><div class="fill" id="oneclick-fill" style="width:0%"></div></div>
                         <div class="progress-text" id="oneclick-text" data-i18n="index.downloading">Downloading…</div>
@@ -343,8 +345,15 @@
                     <h2 style="margin-bottom: 12px;" data-i18n="index.plugins">Plugins</h2>
                     <p class="progress-text" style="margin-bottom: 12px; font-weight: 500;" data-i18n="index.builtInDefault">Built-in by default: mimic-detect (exploit detection) and VirusTotal / mimic-vt (hash lookup). Everything runs in the browser.</p>
                     <div class="plugins">
+                        <div class="scan-mode-wrap" style="margin-bottom: 14px;">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="mimic-detect-only" name="scan-mode" checked>
+                                <span data-i18n="index.mimicDetectOnly">mimic-detect only — scan without loading ClamAV or YARA</span>
+                            </label>
+                            <div class="progress-text" style="margin-top: 4px; margin-left: 24px;" data-i18n="index.mimicDetectOnlyDesc">When enabled, you can scan files immediately using only exploit detection (no signature DB or YARA rules required).</div>
+                        </div>
                         <label data-i18n="index.mimicDetect">mimic-detect</label>
-                        <div class="progress-text" data-i18n="index.mimicDetectDesc">Exploit detection (DNG, RTF, TTF, PDF, RAR) — always on.</div>
+                        <div class="progress-text" data-i18n="index.mimicDetectDesc">Exploit detection (DNG, RTF, TTF, PDF, RAR, ZIP) — always on.</div>
                         <details class="mimic-detect-help">
                             <summary data-i18n="index.featuresCves">Features &amp; CVEs detected by mimic-detect</summary>
                             <div class="help-panel">
@@ -370,6 +379,10 @@
                                 <h4>RAR</h4>
                                 <ul>
                                     <li><a href="https://www.welivesecurity.com/en/eset-research/update-winrar-tools-now-romcom-and-others-exploiting-zero-day-vulnerability/" target="_blank" rel="noopener">CVE-2025-8088</a>: WinRAR path traversal via Alternate Data Streams (ADS); malicious files in ADS extracted to arbitrary paths.</li>
+                                </ul>
+                                <h4>ZIP (Zombie ZIP)</h4>
+                                <ul>
+                                    <li><a href="https://github.com/bombadil-systems/zombie-zip" target="_blank" rel="noopener">CVE-2026-0866</a>: Zombie ZIP — archive declares Method=0 (stored) while payload is DEFLATE-compressed (AV evasion).</li>
                                 </ul>
                             </div>
                         </details>
@@ -996,8 +1009,9 @@ rule HelloWorld {
                 }
             }
             const yaraCount = scanner ? scanner.getYaraRuleCount() : 0;
-            if (totalSigs === 0 && yaraCount === 0) {
-                alert('Load ClamAV signature databases and/or add YARA rules in the editor first.');
+            const mimicDetectOnly = document.getElementById('mimic-detect-only') && document.getElementById('mimic-detect-only').checked;
+            if (!mimicDetectOnly && totalSigs === 0 && yaraCount === 0) {
+                alert('Load ClamAV signature databases and/or add YARA rules in the editor first, or enable "mimic-detect only" above.');
                 return;
             }
 
@@ -1036,8 +1050,9 @@ rule HelloWorld {
                 } catch (_) {}
             }
             const yaraCount = scanner ? scanner.getYaraRuleCount() : 0;
-            if (totalSigs === 0 && yaraCount === 0) {
-                alert('Load ClamAV signature databases and/or add YARA rules in the editor first.');
+            const mimicDetectOnly = document.getElementById('mimic-detect-only') && document.getElementById('mimic-detect-only').checked;
+            if (!mimicDetectOnly && totalSigs === 0 && yaraCount === 0) {
+                alert('Load ClamAV signature databases and/or add YARA rules in the editor first, or enable "mimic-detect only" above.');
                 return;
             }
             if (!lastScannedFiles.length) {

@@ -61,7 +61,7 @@
                     <h3 data-i18n="summaryFeaturesTitle">Features</h3>
                     <ul class="help-tips">
                         <li data-i18n="summaryFeature1">ELF and PE loading: run Linux and Windows binaries in the browser</li>
-                        <li data-i18n="summaryFeature2">Step-through debugging: Continue (F5), Step Into (F11), Step Over (F10)</li>
+                        <li data-i18n="summaryFeature2">Step-through debugging: Continue (F5), Step Into (F7), Step Over (F6)</li>
                         <li data-i18n="summaryFeature3">Timeless mode: record every instruction and navigate backward/forward in time</li>
                         <li data-i18n="summaryFeature4">Memory breakpoints (Tenet-style): track a data address, see reads/writes on the timeline, jump with J/K</li>
                         <li data-i18n="summaryFeature5">Syscall tracing (strace): log Linux syscalls or Windows NT API calls</li>
@@ -187,8 +187,8 @@
                     <h3 data-i18n="helpKbShortcuts">Keyboard Shortcuts</h3>
                     <table class="help-table">
                         <tr><td><kbd>F5</kbd></td><td data-i18n="helpKbF5">Continue execution</td></tr>
-                        <tr><td><kbd>F10</kbd></td><td data-i18n="helpKbF10">Step over</td></tr>
-                        <tr><td><kbd>F11</kbd></td><td data-i18n="helpKbF11">Step into (single step)</td></tr>
+                        <tr><td><kbd>F6</kbd></td><td data-i18n="helpKbF6">Step over</td></tr>
+                        <tr><td><kbd>F7</kbd></td><td data-i18n="helpKbF7">Step into (single step)</td></tr>
                         <tr><td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td><td data-i18n="helpKbArrows">Step backward / forward in trace</td></tr>
                         <tr><td><kbd>Shift+&larr;/&rarr;</kbd></td><td data-i18n="helpKbShiftArrows">Step 10 backward / forward</td></tr>
                         <tr><td><kbd>Escape</kbd></td><td data-i18n="helpKbEscape">Return to live execution</td></tr>
@@ -800,7 +800,7 @@
 
     <footer>
         <p>binb &mdash; Rust + WebAssembly &mdash;
-            <kbd>F5</kbd> Continue <kbd>F10</kbd> Step Over <kbd>F11</kbd> Step Into
+            <kbd>F5</kbd> Continue <kbd>F6</kbd> Step Over <kbd>F7</kbd> Step Into
             <kbd>j</kbd>/<kbd>k</kbd> iaddr <kbd>J</kbd>/<kbd>K</kbd> daddr
         </p>
         <p class="footer-contact"><a href="mailto:contact@69.bzh">contact@69.bzh</a></p>
