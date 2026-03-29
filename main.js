@@ -48,7 +48,8 @@ let isRunning = false;
 let lastStoppedAtBreakpoint = false;
 const DISASM_LINES = 30;
 const MEM_BYTES_PER_LINE = 32;
-const MEM_LINES = 36;
+/** Visible rows in Memory tab (32 bytes per row). Larger window = fewer scroll hops when paging. */
+const MEM_LINES = 48;
 
 // Trace / timeless debugger state
 let traceMode = false;       // true when browsing recorded trace (not live)
@@ -192,7 +193,10 @@ const btnMemPgUp   = document.getElementById('btn-mem-pgup');
 const btnMemPgDn   = document.getElementById('btn-mem-pgdn');
 const btnMemWatch  = document.getElementById('btn-mem-watch');
 const memAutoRefresh = document.getElementById('mem-auto-refresh');
+const memFollowAccesses = document.getElementById('mem-follow-accesses');
+const memFollowWrap = document.getElementById('mem-follow-wrap');
 const memoryDump   = document.getElementById('memory-dump');
+const memoryDumpWrap = document.getElementById('memory-dump-wrap');
 const memInfo      = document.getElementById('mem-info');
 const memSearchInput = document.getElementById('mem-search');
 const memSearchMode = document.getElementById('mem-search-mode');
@@ -1501,7 +1505,9 @@ function setupKeyboard() {
         if (!emulator) return;
         const active = document.activeElement;
         const isMemByteEdit = active && active.classList && active.classList.contains('mem-byte-edit');
-        const isTraceNavKey = (e.key === 'j' || e.key === 'k' || e.key === 'J' || e.key === 'K') && traceMode;
+        const isJK = e.key === 'j' || e.key === 'k' || e.key === 'J' || e.key === 'K';
+        const isDaddrNav = isJK && e.shiftKey && daddr;
+        const isTraceNavKey = (isJK && traceMode) || isDaddrNav;
         if (isMemByteEdit) return;
         const typing = isElementTypingContext(active);
         if (typing && !isTraceNavKey) return;
@@ -1536,13 +1542,20 @@ function setupKeyboard() {
             e.preventDefault();
             navigateIaddr(-1);
         }
-        // QIRA-style: J/K (shift) to navigate data address touches (daddr)
-        else if (e.key === 'J' && traceMode) {
+        // QIRA-style: J/K (shift) to navigate data address touches (daddr).
+        // Works even outside trace mode: auto-enters trace if there is trace data + a tracked address.
+        else if (e.key === 'J' && daddr) {
             e.preventDefault();
-            navigateDaddr(1);
-        } else if (e.key === 'K' && traceMode) {
+            if (!traceMode && emulator.get_trace_length() > 0) {
+                seekTrace(emulator.get_trace_length() - 1);
+            }
+            if (traceMode) navigateDaddr(1);
+        } else if (e.key === 'K' && daddr) {
             e.preventDefault();
-            navigateDaddr(-1);
+            if (!traceMode && emulator.get_trace_length() > 0) {
+                seekTrace(emulator.get_trace_length() - 1);
+            }
+            if (traceMode) navigateDaddr(-1);
         }
         // Register seeking: Ctrl+[ prev write, Ctrl+] next write (focus a register first by clicking it)
         else if (e.key === '[' && e.ctrlKey && traceMode && focusedGprIndex !== null) {
@@ -1592,6 +1605,9 @@ function navigateDaddr(direction) {
     }
     const idx = nextIdx >= 0 ? Math.floor(nextIdx) : -1;
     if (idx >= 0 && idx !== traceCursor) {
+        // Move memory view to the tracked address so the user sees the R/W at that location
+        const lineAligned = daddr.addr - (daddr.addr % MEM_BYTES_PER_LINE);
+        memAddr.value = '0x' + lineAligned.toString(16);
         seekTrace(idx);
         updateFullUI();
         if (disasmList) disasmList.focus({ preventScroll: true });
@@ -1632,8 +1648,6 @@ window._setMemBreakpoint = (byteAddr) => {
         const idx = emulator.prev_trace_by_addr(byteAddr, 1, start);
         if (idx >= 0) seekTrace(idx);
     }
-    const memAddrEl = document.getElementById('mem-addr');
-    if (memAddrEl) memAddrEl.value = '0x' + byteAddr.toString(16);
     if (typeof refreshMemory === 'function') refreshMemory();
 }
 
@@ -1645,8 +1659,6 @@ window._setMemTrackOnly = (byteAddr) => {
     if (emulator && typeof emulator.clear_break_on_data === 'function') {
         emulator.clear_break_on_data();
     }
-    const memAddrEl = document.getElementById('mem-addr');
-    if (memAddrEl) memAddrEl.value = '0x' + byteAddr.toString(16);
     if (typeof refreshMemory === 'function') refreshMemory();
     if (typeof updateDaddrDisplay === 'function') updateDaddrDisplay();
     if (typeof renderWatchList === 'function') renderWatchList();
@@ -1924,8 +1936,80 @@ function resetSession() {
     enableButtons(false);
 }
 
+/** Restart emulation with the same binary, preserving user-added VFS files and settings. */
+function restartWithSameBinary() {
+    if (!elfBytes) { resetSession(); return; }
+
+    isRunning = false;
+    if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+
+    let userVfs = [];
+    if (emulator) {
+        try {
+            const json = emulator.get_vfs_files();
+            const files = JSON.parse(json);
+            for (const f of files) {
+                if (f.modified) {
+                    try {
+                        const data = emulator.get_vfs_file_content(f.path);
+                        if (data && data.length > 0) userVfs.push({ path: f.path, data: new Uint8Array(data) });
+                    } catch (_) {}
+                }
+            }
+        } catch (_) {}
+    }
+
+    const savedBytes = elfBytes;
+    const savedName = elfFileName;
+    const savedSysroot = pendingSysrootFiles;
+    const isPeFile = savedBytes && isPe(savedBytes);
+    const isShellcode = !savedBytes || (!isElf(savedBytes) && !isPeFile);
+    const savedAnnotations = { bookmarks: getBookmarks(), comments: getComments() };
+
+    traceMode = false;
+    traceCursor = 0;
+    focusedGprIndex = null;
+    traceMemAccesses = null;
+    _traceDisasmCache = { startAddr: -1, endAddr: -1, rip: -1 };
+    emulator = null;
+
+    elfBytes = savedBytes;
+    elfFileName = savedName;
+    pendingSysrootFiles = savedSysroot;
+
+    if (terminal) {
+        terminal.innerHTML = `<span class="muted" data-i18n="terminalPrompt">${t('terminalPrompt')}</span>\n`;
+        terminal.scrollTop = 0;
+    }
+    if (straceOutput) straceOutput.innerHTML = `<span class="muted" data-i18n="straceEnablePrompt">${t('straceEnablePrompt')}</span>`;
+    if (stdinPrompt) stdinPrompt.style.display = 'none';
+    if (stdinInput) stdinInput.value = '';
+
+    try {
+        if (isShellcode) {
+            createEmulator(savedBytes, { asShellcode: true, arch: 'x86_64' });
+        } else {
+            createEmulator(savedBytes, isPeFile ? { asPe: true } : {});
+        }
+    } catch (e) {
+        appendTerminal(`\nRestart failed: ${e.message || e}`, 'error');
+        resetSession();
+        return;
+    }
+
+    for (const f of userVfs) {
+        try { emulator.add_vfs_file(f.path, f.data); } catch (_) {}
+    }
+    if (userVfs.length > 0) renderVfsList();
+
+    if (savedAnnotations.bookmarks) setBookmarks(savedAnnotations.bookmarks);
+    if (savedAnnotations.comments) setComments(savedAnnotations.comments);
+
+    appendTerminal(`\n[Reset] Restarted ${escapeHtml(savedName)}. Step or Continue to begin.\n`, 'info');
+}
+
 btnReset.addEventListener('click', () => {
-    resetSession();
+    restartWithSameBinary();
 });
 
 // ── Snapshot & Restore (includes bookmarks/comments) ──────────────────────────
@@ -2564,7 +2648,8 @@ function runMemSearchAll() {
         if (memSearchSpinner) memSearchSpinner.classList.remove('searching');
         updateMemSearchStatus();
         if (matches.length > 0) {
-            memAddr.value = '0x' + matches[0].addr.toString(16);
+            const a = matches[0].addr;
+            memAddr.value = '0x' + (a - (a % MEM_BYTES_PER_LINE)).toString(16);
         }
         refreshMemory();
     });
@@ -2715,8 +2800,13 @@ btnZoomReset.addEventListener('click', () => {
     updateZoomInfo();
     renderTimeline(traceCursor);
 });
+let _sliderRafId = 0;
 timelineSlider.addEventListener('input', () => {
-    seekTrace(parseInt(timelineSlider.value));
+    if (_sliderRafId) return;
+    _sliderRafId = requestAnimationFrame(() => {
+        _sliderRafId = 0;
+        seekTrace(parseInt(timelineSlider.value));
+    });
 });
 
 // --- Tenet-style timeline interactions: click, drag-to-zoom, scroll-to-zoom ---
@@ -4427,6 +4517,13 @@ function refreshMemory() {
     }
     memoryDump.innerHTML = parts.join('');
     memInfo.textContent = `${totalBytes} bytes from 0x${addr.toString(16)}`;
+
+    if (searchCurSet.size > 0 && memoryDumpWrap) {
+        requestAnimationFrame(() => {
+            const cur = memoryDump.querySelector('.mem-search-current');
+            if (cur) cur.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+        });
+    }
 }
 
 // ── Memory Accesses Panel ───────────────────────────────────────────────────
@@ -5155,6 +5252,7 @@ function seekTrace(idx) {
     if (!traceMode) {
         traceMode = true;
         setStatus('statusTrace', 'trace');
+        if (memFollowWrap) memFollowWrap.style.display = '';
     }
 
     // Update slider
@@ -5192,8 +5290,19 @@ function seekTrace(idx) {
     // Render timeline
     renderTimeline(idx);
 
-    // In trace mode always refresh memory so access highlighting stays in sync with current instruction
+    // In trace mode always refresh memory so access highlighting (R/W tints) stays in sync.
+    // If "follow" is checked, also jump the address to the first memory access of this instruction.
     if (traceMode) {
+        if (memFollowAccesses && memFollowAccesses.checked && traceMemAccesses && traceMemAccesses.length > 0) {
+            const acc = traceMemAccesses[0];
+            const accAddr = acc.addr;
+            const lineAligned = accAddr - (accAddr % MEM_BYTES_PER_LINE);
+            const curAddr = parseAddr(memAddr.value.trim());
+            const totalBytes = MEM_LINES * MEM_BYTES_PER_LINE;
+            if (isNaN(curAddr) || accAddr < curAddr || accAddr >= curAddr + totalBytes) {
+                memAddr.value = '0x' + lineAligned.toString(16);
+            }
+        }
         refreshMemory();
     } else if (memAutoRefresh.checked) {
         refreshMemory();
@@ -5204,17 +5313,31 @@ function seekTrace(idx) {
 }
 
 function exitTraceMode() {
+    // Restore VM to the latest trace entry so memory / registers match end-of-execution,
+    // not the arbitrary historical point the user last seeked to.
+    if (emulator) {
+        const len = emulator.get_trace_length();
+        if (len > 0) {
+            emulator.seek_trace_index(len - 1);
+        }
+    }
+
     traceMode = false;
     traceCursor = 0;
     focusedGprIndex = null;
     traceMemAccesses = null;
     tlIaddrBreakpoint = null;
+    _traceDisasmCache = { startAddr: -1, endAddr: -1, rip: -1 };
     timelineCursor.style.display = 'none';
+    if (memFollowWrap) memFollowWrap.style.display = 'none';
     if (emulator && !emulator.is_exited()) {
         setStatus('statusReady');
     }
     updateFullUI();
 }
+
+/** Cache for the trace disasm listing: avoids re-fetching + rebuilding when RIP is still visible. */
+let _traceDisasmCache = { startAddr: -1, endAddr: -1, rip: -1 };
 
 function renderTraceDisasm(traceIdx) {
     if (!emulator) return;
@@ -5224,8 +5347,41 @@ function renderTraceDisasm(traceIdx) {
     const rip = parseInt(regs.rip, 16);
     if (isNaN(rip)) return;
 
+    // If the current RIP is still inside the existing listing, just move the highlight.
+    if (rip >= _traceDisasmCache.startAddr && rip < _traceDisasmCache.endAddr && rip !== _traceDisasmCache.rip) {
+        const prev = disasmList.querySelector('.disasm-current');
+        if (prev) {
+            prev.classList.remove('disasm-current', 'disasm-syscall');
+            const arrow = prev.querySelector('.disasm-arrow');
+            if (arrow) arrow.remove();
+        }
+        const next = disasmList.querySelector(`.disasm-line[data-addr="${rip}"]`);
+        if (next) {
+            next.classList.add('disasm-current');
+            if (emulator.get_trace_entry_is_syscall(traceIdx)) next.classList.add('disasm-syscall');
+            if (!next.querySelector('.disasm-arrow')) {
+                next.insertAdjacentHTML('beforeend', '<span class="disasm-arrow">&larr;</span>');
+            }
+            const listing = disasmList.parentElement || disasmList;
+            const listRect = listing.getBoundingClientRect();
+            const elRect = next.getBoundingClientRect();
+            if (elRect.top < listRect.top || elRect.bottom > listRect.bottom) {
+                next.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+            }
+        }
+        _traceDisasmCache.rip = rip;
+        return;
+    }
+
+    // RIP is outside the current listing — fetch starting from RIP.
     const json = emulator.disasm_range(rip, DISASM_LINES);
     const instrs = JSON.parse(json);
+
+    if (instrs.length > 0) {
+        _traceDisasmCache.startAddr = Number(instrs[0].addr_num);
+        _traceDisasmCache.endAddr = Number(instrs[instrs.length - 1].addr_num) + 1;
+        _traceDisasmCache.rip = rip;
+    }
 
     const disasmLines = instrs.map(instr => ({ addr: instr.addr, text: instr.text }));
     if (disasmSearchQuery.trim()) {
@@ -5320,7 +5476,7 @@ function renderTraceDisasm(traceIdx) {
 
     const currentEl = disasmList.querySelector('.disasm-current');
     if (currentEl) {
-        currentEl.scrollIntoView({ block: 'center', behavior: 'instant' });
+        currentEl.scrollIntoView({ block: 'nearest', behavior: 'instant' });
     }
 
     // Show current function name in panel header (trace mode)

@@ -406,6 +406,10 @@
                             <input type="checkbox" id="mem-auto-refresh" checked>
                             <span data-i18n="memAuto">auto</span>
                         </label>
+                        <label class="strace-toggle" id="mem-follow-wrap" style="display:none" title="Auto-jump to memory accessed by current instruction (timeless mode)">
+                            <input type="checkbox" id="mem-follow-accesses">
+                            <span>follow</span>
+                        </label>
                         <span class="mem-info" id="mem-info"></span>
                         <span class="mem-legend"><span class="mem-legend-read" data-i18n="memLegendR">R</span> <span class="mem-legend-write" data-i18n="memLegendW">W</span></span>
                         <span class="mem-entropy-legend" data-i18n-title="memEntropyTitle">
@@ -437,7 +441,9 @@
                         <span class="mem-search-spinner" id="mem-search-spinner" data-i18n-title="memSearching" aria-hidden="true"></span>
                         <span class="mem-search-status" id="mem-search-status"></span>
                     </div>
+                    <div class="tab-scroll-wrap memory-dump-wrap" id="memory-dump-wrap">
                     <pre class="terminal memory-dump" id="memory-dump"><span class="muted" data-i18n="memEnterAddress">Enter an address and click Go.</span></pre>
+                    </div>
                 </div>
                 <div class="tab-content" id="memmap-tab">
                     <div class="memory-map-list" id="memmap-list">

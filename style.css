@@ -474,9 +474,8 @@ header {
     --col-right: 340px;
     display: flex;
     flex-direction: row;
-    flex: 1;
+    flex: 1 1 0;
     min-height: 0;
-    max-height: calc(100vh - 220px); /* keep timeline + info bar visible */
     overflow: hidden;
 }
 
@@ -696,13 +695,13 @@ header {
 
 .disasm-listing {
     flex: 1;
-    overflow-y: auto;
+    overflow-y: scroll;
+    overflow-x: hidden;
     background: var(--bg);
     font-family: var(--mono);
     font-size: 0.78rem;
     line-height: 1.7;
-    min-height: 200px;
-    max-height: calc(100vh - 200px);
+    min-height: 0;
 }
 
 .disasm-listing .muted {
@@ -1293,8 +1292,7 @@ header {
     min-width: 4ch;
 }
 .mem-search-status.muted { color: var(--text-muted); }
-.mem-search-hit { background: var(--yellow-dark); color: var(--bg); }
-.mem-search-current { background: var(--accent); color: var(--bg); font-weight: 700; }
+/* Stronger rules live under .memory-dump (see below) so value palette does not hide hits. */
 
 .mem-info {
     font-size: 0.65rem;
@@ -1302,9 +1300,22 @@ header {
     font-family: var(--mono);
 }
 
+/* Scrolls inside #memory-dump-wrap; dump can grow vertically with MEM_LINES. */
+.memory-dump-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+}
+.memory-dump-wrap .memory-dump {
+    margin: 0;
+    padding: 0.5rem 0.75rem 1rem;
+    min-height: 50vh;
+}
 .memory-dump {
-    font-size: 0.72rem;
-    line-height: 1.55;
+    font-size: 0.78rem;
+    line-height: 1.5;
     min-width: 100ch;
 }
 
@@ -1342,7 +1353,7 @@ header {
     line-height: 1.6;
     background: var(--bg);
     overflow-y: auto;
-    max-height: calc(100vh - 200px);
+    min-height: 0;
 }
 .callstack-frame {
     display: flex;
@@ -1369,8 +1380,8 @@ header {
     font-size: 0.82rem;
     line-height: 1.8;
     background: var(--bg);
-    overflow-y: auto;
-    max-height: calc(100vh - 200px);
+    overflow-y: scroll;
+    min-height: 0;
 }
 
 .registers .muted {
@@ -1563,7 +1574,7 @@ header {
     background: var(--bg);
     font-family: var(--mono);
     font-size: 0.75rem;
-    max-height: calc(100vh - 200px);
+    min-height: 0;
 }
 .bp-list .muted { color: var(--text-muted); font-family: var(--sans); }
 
@@ -1587,14 +1598,17 @@ header {
     padding: 0.4rem 1.5rem;
     background: var(--surface);
     border-top: 1px solid var(--border);
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
 .info-item {
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .info-item .label {
@@ -2023,7 +2037,7 @@ footer .footer-beta {
 }
 
 .mem-byte.clickable { cursor: pointer; }
-.mem-byte.clickable:hover { background: var(--surface-2); border-radius: 2px; }
+.mem-byte.clickable:hover:not(.mem-search-hit):not(.mem-search-current) { background: var(--surface-2); border-radius: 2px; }
 .mem-byte-daddr {
     outline: 2px solid var(--accent);
     border-radius: 2px;
@@ -2032,6 +2046,41 @@ footer .footer-beta {
 .mem-byte-daddr.mem-byte-read { background: rgba(99, 179, 237, 0.2); }
 .mem-byte-daddr.mem-byte-write,
 .mem-byte-daddr.mem-byte-rw { background: rgba(99, 179, 237, 0.3); }
+
+/* Search hits: must override mem-byte-v* palettes and trace R/W tints.
+   Use high-contrast solid backgrounds so hex values stay readable.
+   ASCII column gets the same treatment — the 1ch-wide chars need extra emphasis. */
+.memory-dump .mem-byte.mem-search-hit,
+.memory-dump .mem-byte-hex.mem-search-hit {
+    background: #fbbf24 !important;
+    color: #000 !important;
+    font-weight: 700;
+    border-radius: 2px;
+    outline: 1px solid #b45309;
+}
+.memory-dump .mem-byte.mem-search-current,
+.memory-dump .mem-byte-hex.mem-search-current {
+    background: #38bdf8 !important;
+    color: #000 !important;
+    font-weight: 700;
+    border-radius: 2px;
+    outline: 2px solid #0284c7;
+}
+/* ASCII column: just background + underline, no padding/margin to preserve alignment */
+.memory-dump .mem-byte:not(.mem-byte-hex).mem-search-hit {
+    outline: none;
+    text-decoration: underline 2px #b45309;
+    text-underline-offset: 2px;
+}
+.memory-dump .mem-byte:not(.mem-byte-hex).mem-search-current {
+    outline: none;
+    text-decoration: underline 2px #0284c7;
+    text-underline-offset: 2px;
+}
+.memory-dump .mem-byte.mem-search-hit:hover,
+.memory-dump .mem-byte.mem-search-current:hover {
+    filter: brightness(1.1);
+}
 
 /* Hex editor inline edit */
 .mem-byte-edit {
@@ -3415,10 +3464,6 @@ body.dragover::after {
         font-size: 0.65rem;
     }
 
-    /* Debugger layout already stacks at 700px; ensure min-heights don’t fight */
-    .debugger-layout {
-        max-height: calc(100vh - 180px);
-    }
     .disasm-search-bar {
         flex-wrap: wrap;
     }
