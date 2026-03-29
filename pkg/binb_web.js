@@ -1253,31 +1253,37 @@ export class Emulator {
         }
     }
     /**
-     * Scan emulator memory with YARA-style rules.
-     * Supports: text strings (plain and case-insensitive), hex byte patterns
-     * (with ?? wildcards), and conditions (any of them, all of them, N of them, $name).
-     * Returns JSON array of matches: [{rule, pattern, addr, len, preview}].
+     * Run YARA-style rules against either **guest memory** or the **uploaded file bytes**.
+     *
+     * - `scan_target` `None`, empty, or `"guest_memory"`: all readable mapped VM pages (heap, stack, mmap, …).
+     * - `scan_target` `"uploaded_file"` or `"file"`: the raw image last passed to the constructor (ELF/PE/shellcode on disk), not runtime-only regions.
+     *
+     * Match objects include `match_kind` (`"guest_memory"` | `"uploaded_file"`). File matches add
+     * `file_offset` and optional `guest_addr` (mapped VA when known) for jumping to the Memory view.
      * @param {string} rules_source
+     * @param {string | null} [scan_target]
      * @returns {string}
      */
-    yara_scan(rules_source) {
-        let deferred3_0;
-        let deferred3_1;
+    yara_scan(rules_source, scan_target) {
+        let deferred4_0;
+        let deferred4_1;
         try {
             const ptr0 = passStringToWasm0(rules_source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len0 = WASM_VECTOR_LEN;
-            const ret = wasm.emulator_yara_scan(this.__wbg_ptr, ptr0, len0);
-            var ptr2 = ret[0];
-            var len2 = ret[1];
+            var ptr1 = isLikeNone(scan_target) ? 0 : passStringToWasm0(scan_target, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            var len1 = WASM_VECTOR_LEN;
+            const ret = wasm.emulator_yara_scan(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+            var ptr3 = ret[0];
+            var len3 = ret[1];
             if (ret[3]) {
-                ptr2 = 0; len2 = 0;
+                ptr3 = 0; len3 = 0;
                 throw takeFromExternrefTable0(ret[2]);
             }
-            deferred3_0 = ptr2;
-            deferred3_1 = len2;
-            return getStringFromWasm0(ptr2, len2);
+            deferred4_0 = ptr3;
+            deferred4_1 = len3;
+            return getStringFromWasm0(ptr3, len3);
         } finally {
-            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+            wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
         }
     }
 }

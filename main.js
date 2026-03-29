@@ -1911,11 +1911,12 @@ function resetSession() {
     // YARA tab
     if (yaraEditor) yaraEditor.value = '';
     if (yaraHighlightLayer) yaraHighlightLayer.innerHTML = '';
-    if (yaraResults) yaraResults.innerHTML = `<span class="muted">Write YARA rules and click &quot;Run all rules&quot; to scan memory and see all results.</span>`;
+    if (yaraResults) yaraResults.innerHTML = `<span class="muted">Write YARA rules and click &quot;Run all rules&quot; to scan <strong>guest memory</strong> (VM address space, not the file on disk).</span>`;
     if (yaraStatus) yaraStatus.textContent = '';
     if (yaraMatchCount) yaraMatchCount.textContent = '';
     if (yaraSummary) yaraSummary.textContent = '';
     if (yaraProgressWrap) yaraProgressWrap.setAttribute('aria-hidden', 'true');
+    setYaraScanContextBanner(null);
     _lastSelectedRuleSource = '';
     _lastSelectedRuleName = '';
     clearAnnotations();
@@ -3221,18 +3222,25 @@ function renderStraceOutput() {
     const currentMatchLine = straceSearchMatches.length > 0 && straceSearchCurrentIndex >= 0 ? straceSearchMatches[straceSearchCurrentIndex] : -1;
     const html = lines.map((line, i) => {
         const searchCls = matchSet.has(i) ? (i === currentMatchLine ? ' strace-search-current' : ' strace-search-hit') : '';
-        const mResult = line.match(/^(\w+)\((.*)\)\s*=\s*(.+)$/);
-        const mNoResult = line.match(/^(\w+)\((.*)\)\s*$/);
+        let ic = '';
+        let rest = line;
+        const icMatch = line.match(/^@(\d+)\s+/);
+        if (icMatch) {
+            ic = `<span class="strace-ic" title="instruction #${icMatch[1]}">${icMatch[1]}</span>`;
+            rest = line.slice(icMatch[0].length);
+        }
+        const mResult = rest.match(/^(\w+)\((.*)\)\s*=\s*(.+)$/);
+        const mNoResult = rest.match(/^(\w+)\((.*)\)\s*$/);
         const num = `<span class="strace-num">${String(i + 1).padStart(lines.length.toString().length)}</span>`;
         if (mResult) {
             const [, name, args, result] = mResult;
-            return `<div class="strace-row${searchCls}" data-line-index="${i}">${num}<span class="strace-name">${escapeHtml(name)}</span><span class="strace-args">${escapeHtml(args)}</span><span class="strace-result">= ${escapeHtml(result)}</span></div>`;
+            return `<div class="strace-row${searchCls}" data-line-index="${i}">${num}${ic}<span class="strace-name">${escapeHtml(name)}</span><span class="strace-args">${escapeHtml(args)}</span><span class="strace-result">= ${escapeHtml(result)}</span></div>`;
         }
         if (mNoResult) {
             const [, name, args] = mNoResult;
-            return `<div class="strace-row${searchCls}" data-line-index="${i}">${num}<span class="strace-name">${escapeHtml(name)}</span><span class="strace-args">${escapeHtml(args)}</span></div>`;
+            return `<div class="strace-row${searchCls}" data-line-index="${i}">${num}${ic}<span class="strace-name">${escapeHtml(name)}</span><span class="strace-args">${escapeHtml(args)}</span></div>`;
         }
-        return `<div class="strace-row${searchCls}" data-line-index="${i}">${num}<span class="strace-plain">${escapeHtml(line)}</span></div>`;
+        return `<div class="strace-row${searchCls}" data-line-index="${i}">${num}${ic}<span class="strace-plain">${escapeHtml(rest)}</span></div>`;
     }).join('');
     straceOutput.innerHTML = html;
     if (!straceSearchQuery.trim() && straceWrap) straceWrap.scrollTop = straceWrap.scrollHeight;
@@ -6037,7 +6045,7 @@ const yaraResults = document.getElementById('yara-results');
 const yaraStatus = document.getElementById('yara-status');
 const yaraMatchCount = document.getElementById('yara-match-count');
 const yaraSummary = document.getElementById('yara-summary');
-const btnYaraScan = document.getElementById('btn-yara-scan');
+const yaraScanContext = document.getElementById('yara-scan-context');
 const btnYaraRunAll = document.getElementById('btn-yara-run-all');
 const btnYaraRunSelected = document.getElementById('btn-yara-run-selected');
 const btnYaraClear = document.getElementById('btn-yara-clear');
@@ -6054,7 +6062,7 @@ const YARA_FORGE_ZIP_URL = '/yara-forge-rules-full.zip';
 /** Parsed YARA-Forge rules after fetch; used when user picks from Example Rules. [{ name, source }] */
 let _yaraForgeRules = [];
 
-/** Last rule source/name selected from Example Rules dropdown; used by "Run selected rule". */
+/** Last rule source/name selected from Example Rules dropdown (editor is filled; Run editor rules scans it). */
 let _lastSelectedRuleSource = '';
 let _lastSelectedRuleName = '';
 
@@ -6282,12 +6290,89 @@ function yieldToUI() {
     return new Promise(r => setTimeout(r, 0));
 }
 
+function formatYaraScanBytes(n) {
+    if (n == null || n === undefined || typeof n !== 'number' || Number.isNaN(n)) return '';
+    const x = Math.floor(n);
+    if (x < 1024) return `${x} B`;
+    if (x < 1024 * 1024) return `${(x / 1024).toFixed(1)} KiB`;
+    return `${(x / (1024 * 1024)).toFixed(2)} MiB`;
+}
+
+/** Parse WASM `yara_scan` JSON: object with `matches` + scan metadata, or legacy plain array. */
+function parseYaraScanResponse(jsonStr) {
+    let data;
+    try {
+        data = JSON.parse(jsonStr);
+    } catch {
+        return { matches: [], meta: null };
+    }
+    if (Array.isArray(data)) {
+        return {
+            matches: data,
+            meta: {
+                scan_target: 'guest_memory',
+                scan_label: 'Guest memory (VM)',
+                scan_detail: 'Readable mapped pages only (program, heap, stack, mmap, …). The on-disk file is not scanned.',
+                readable_regions: null,
+                scanned_bytes: null,
+                file_size: null,
+            },
+        };
+    }
+    return {
+        matches: Array.isArray(data.matches) ? data.matches : [],
+        meta: {
+            scan_target: data.scan_target || 'guest_memory',
+            scan_label: data.scan_label || 'Guest memory (VM)',
+            scan_detail: data.scan_detail || '',
+            readable_regions: data.readable_regions,
+            scanned_bytes: data.scanned_bytes,
+            file_size: data.file_size,
+        },
+    };
+}
+
+function setYaraScanContextBanner(meta) {
+    if (!yaraScanContext) return;
+    if (!meta || !meta.scan_label) {
+        yaraScanContext.hidden = true;
+        yaraScanContext.innerHTML = '';
+        return;
+    }
+    const reg = meta.readable_regions != null ? Number(meta.readable_regions) : null;
+    const bytes = meta.scanned_bytes != null ? Number(meta.scanned_bytes) : null;
+    const stats = [];
+    if (reg != null && !Number.isNaN(reg)) stats.push(`${reg.toLocaleString()} readable region${reg === 1 ? '' : 's'}`);
+    const bStr = formatYaraScanBytes(bytes);
+    if (bStr) stats.push(`~${bStr} scanned`);
+    const statsLine = stats.length > 0 ? stats.join(' · ') : '';
+    const detail = meta.scan_detail ? `<div class="yara-scan-context-detail">${escapeHtmlYara(meta.scan_detail)}</div>` : '';
+    const hint = meta.scan_target === 'uploaded_file'
+        ? 'bytes you loaded (static image)'
+        : 'includes heap, stack, mmap (not just the file)';
+    yaraScanContext.innerHTML = `
+        <div class="yara-scan-context-box">
+            <div class="yara-scan-context-title"><span class="yara-scan-context-badge">${escapeHtmlYara(meta.scan_label)}</span><span class="yara-scan-context-hint">${escapeHtmlYara(hint)}</span></div>
+            ${statsLine ? `<div class="yara-scan-context-stats">${escapeHtmlYara(statsLine)}</div>` : ''}
+            ${detail}
+        </div>`;
+    yaraScanContext.hidden = false;
+}
+
+/** Second argument to WASM `yara_scan`: undefined = guest memory, "uploaded_file" = raw loaded bytes. */
+function getYaraScanTargetArg() {
+    const sel = document.getElementById('yara-scan-target');
+    if (!sel || sel.value === 'guest_memory') return undefined;
+    return sel.value;
+}
+
 /** Run YARA scan with given rule source and render results. Runs each rule separately so parse errors in one rule don't block others. */
 async function runYaraScanWithSource(source) {
     if (!emulator) return;
     const rulesSource = (typeof source === 'string' ? source : '').trim();
     if (!rulesSource) return;
 
+    setYaraScanContextBanner(null);
     yaraResults.innerHTML = '';
     if (yaraMatchCount) yaraMatchCount.textContent = '';
     if (yaraSummary) yaraSummary.textContent = '';
@@ -6304,13 +6389,14 @@ async function runYaraScanWithSource(source) {
         // No rules could be parsed (e.g. single malformed rule or empty). Try running the whole source once.
         if (yaraStatus) yaraStatus.textContent = 'Scanning (single rule)...';
         try {
-            const json = emulator.yara_scan(rulesSource);
-            const matches = JSON.parse(json);
+            const json = emulator.yara_scan(rulesSource, getYaraScanTargetArg());
+            const { matches, meta } = parseYaraScanResponse(json);
             const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
-            renderYaraResults(matches, elapsed, 0, []);
+            renderYaraResults(matches, elapsed, 0, [], meta);
             return;
         } catch (e) {
             const errMsg = e.message || String(e);
+            setYaraScanContextBanner(null);
             if (yaraStatus) yaraStatus.textContent = `Error: ${errMsg}`;
             if (yaraResults) yaraResults.innerHTML = `<span style="color:var(--red)">${escapeHtmlYara(errMsg)}</span>`;
             console.error('[YARA] Scan failed:', e);
@@ -6327,13 +6413,15 @@ async function runYaraScanWithSource(source) {
     }
     const allMatches = [];
     const skipped = [];
+    let scanMeta = null;
 
     for (let i = 0; i < parsedRules.length; i++) {
         const r = parsedRules[i];
         try {
-            const json = emulator.yara_scan(r.source);
-            const matches = JSON.parse(json);
-            allMatches.push(...matches);
+            const json = emulator.yara_scan(r.source, getYaraScanTargetArg());
+            const parsed = parseYaraScanResponse(json);
+            allMatches.push(...parsed.matches);
+            if (!scanMeta && parsed.meta) scanMeta = parsed.meta;
         } catch (e) {
             const errMsg = e.message || String(e);
             skipped.push({ name: r.name, error: errMsg });
@@ -6352,14 +6440,23 @@ async function runYaraScanWithSource(source) {
         if (yaraProgressBar) yaraProgressBar.style.setProperty('--yara-progress-pct', '100%');
     }
     const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
-    renderYaraResults(allMatches, elapsed, parsedRules.length, skipped);
+    renderYaraResults(allMatches, elapsed, parsedRules.length, skipped, scanMeta);
 }
 
-/** Render YARA match list and status; skippedList is [{ name, error }]. */
-function renderYaraResults(matches, elapsed, rulesScanned, skippedList) {
+/** Render YARA match list and status; skippedList is [{ name, error }]. scanMeta from WASM (guest memory stats). */
+function renderYaraResults(matches, elapsed, rulesScanned, skippedList, scanMeta) {
+    const meta = scanMeta || {
+        scan_target: 'guest_memory',
+        scan_label: 'Guest memory (VM)',
+        scan_detail: 'Readable mapped pages only (binary segments, heap, stack, mmap, …). The original file on disk is not scanned.',
+        readable_regions: null,
+        scanned_bytes: null,
+    };
+    setYaraScanContextBanner(meta);
     const rulesMatched = new Set(matches.map(m => m.rule));
 
-    let statusText = `${matches.length} match(es) in ${elapsed}s (${rulesMatched.size} rule(s) matched)`;
+    const targetShort = meta.scan_target === 'uploaded_file' ? 'uploaded file' : 'guest memory';
+    let statusText = `${matches.length} match(es) in ${elapsed}s (${rulesMatched.size} rule(s) matched) · ${targetShort}`;
     if (skippedList.length > 0) {
         statusText += ` · ${skippedList.length} rule(s) skipped (parse errors)`;
     }
@@ -6383,15 +6480,34 @@ function renderYaraResults(matches, elapsed, rulesScanned, skippedList) {
         html += '</div>';
     }
     if (matches.length === 0) {
-        html += '<span class="muted">No matches found. Run all rules to scan full memory.</span>';
+        if (meta.scan_target === 'uploaded_file') {
+            html += '<span class="muted">No matches in the uploaded file image for these rules. Try switching to Guest memory if the pattern only exists after load (e.g. unpacked in RAM).</span>';
+        } else {
+            html += '<span class="muted">No matches in guest memory for these rules. Tip: after running the program, memory includes heap/stack; try <strong>Uploaded file</strong> for static strings in the binary.</span>';
+        }
         yaraResults.innerHTML = html;
         return;
     }
     for (const m of matches) {
-        html += `<div class="yara-match-row" data-addr="${m.addr_num}" title="Click to view in memory">`;
+        const isFile = m.match_kind === 'uploaded_file';
+        const g = m.guest_addr;
+        const hasGuest = g != null && typeof g === 'number' && !Number.isNaN(g);
+        let navAddr = '';
+        if (isFile) {
+            if (hasGuest) navAddr = String(g);
+        } else if (m.addr_num != null && !Number.isNaN(Number(m.addr_num))) {
+            navAddr = String(m.addr_num);
+        }
+        const fOff = m.file_offset != null ? Number(m.file_offset) : '';
+        const title = isFile
+            ? (hasGuest
+                ? `File offset 0x${fOff.toString(16)} → guest ${m.addr}. Click to open Memory tab.`
+                : `File offset 0x${Number.isFinite(fOff) ? fOff.toString(16) : '?'}. No mapped guest VA (e.g. outside PT_LOAD/sections).`)
+            : 'Match in guest memory. Click to open Memory tab at this address.';
+        html += `<div class="yara-match-row${isFile ? ' yara-match-file' : ''}" data-nav-addr="${navAddr}" data-file-offset="${fOff !== '' ? fOff : ''}" title="${escapeHtmlYara(title)}">`;
         html += `<span class="yara-match-rule">${escapeHtmlYara(m.rule)}</span>`;
         html += `<span class="yara-match-pattern">${escapeHtmlYara(m.pattern)}</span>`;
-        html += `<span class="yara-match-addr">${m.addr}</span>`;
+        html += `<span class="yara-match-addr">${escapeHtmlYara(String(m.addr))}</span>`;
         html += `<span class="yara-match-len">${m.len}B</span>`;
         html += `<span class="yara-match-preview">${escapeHtmlYara(m.preview)}</span>`;
         html += `</div>`;
@@ -6400,15 +6516,22 @@ function renderYaraResults(matches, elapsed, rulesScanned, skippedList) {
 
     yaraResults.querySelectorAll('.yara-match-row').forEach(row => {
         row.addEventListener('click', () => {
-            const addr = parseFloat(row.dataset.addr);
-            if (!isNaN(addr) && emulator) {
-                const memAddr = document.getElementById('mem-addr');
-                if (memAddr) {
-                    memAddr.value = '0x' + Math.floor(addr).toString(16);
-                    document.getElementById('btn-mem-go')?.click();
+            const nav = row.dataset.navAddr;
+            if (nav !== '' && nav !== undefined && emulator) {
+                const addr = parseFloat(nav);
+                if (!isNaN(addr)) {
+                    const memAddr = document.getElementById('mem-addr');
+                    if (memAddr) {
+                        memAddr.value = '0x' + Math.floor(addr).toString(16);
+                        document.getElementById('btn-mem-go')?.click();
+                    }
+                    document.querySelector('[data-tab="memory-tab"]')?.click();
+                    return;
                 }
-                const memTab = document.querySelector('[data-tab="memory-tab"]');
-                if (memTab) memTab.click();
+            }
+            const fo = row.dataset.fileOffset;
+            if (fo !== '' && fo !== undefined && yaraStatus) {
+                yaraStatus.textContent = `File offset 0x${parseInt(fo, 10).toString(16)} — no guest mapping to jump to. Open the Binary tab and search by offset.`;
             }
         });
     });
@@ -6422,20 +6545,6 @@ function getAllYaraRulesSource() {
         parts.push(..._yaraForgeRules.map(r => r.source));
     }
     return parts.join('\n\n');
-}
-
-/** Run YARA scan using the editor content (used by Scan Memory). */
-function runYaraScanAndShowResults() {
-    if (!emulator) {
-        if (yaraStatus) yaraStatus.textContent = 'No binary loaded';
-        return;
-    }
-    const source = yaraEditor ? yaraEditor.value.trim() : '';
-    if (!source) {
-        if (yaraStatus) yaraStatus.textContent = 'Enter YARA rules first';
-        return;
-    }
-    runYaraScanWithSource(source);
 }
 
 /** Run YARA scan with all available rules (built-in + YARA-Forge). */
@@ -6466,26 +6575,23 @@ if (btnYaraRunSelected) {
         }
         const currentSource = yaraEditor ? yaraEditor.value.trim() : '';
         if (!currentSource) {
-            if (yaraStatus) yaraStatus.textContent = 'Enter or load a rule in the editor, then click Run selected rule.';
+            if (yaraStatus) yaraStatus.textContent = 'Enter or load rules in the editor, then click Run editor rules.';
             return;
         }
-        if (_lastSelectedRuleName) console.log(`[YARA] Running selected rule: ${_lastSelectedRuleName}`);
+        if (_lastSelectedRuleName) console.log(`[YARA] Running editor rules (last example: ${_lastSelectedRuleName})`);
         runYaraScanWithSource(currentSource);
     });
-}
-
-if (btnYaraScan) {
-    btnYaraScan.addEventListener('click', () => runYaraScanAndShowResults());
 }
 
 if (btnYaraClear) {
     btnYaraClear.addEventListener('click', () => {
         yaraEditor.value = '';
         refreshYaraHighlight();
-        yaraResults.innerHTML = '<span class="muted">Write YARA rules and click &quot;Run all rules&quot; to scan memory and see all results.</span>';
+        yaraResults.innerHTML = '<span class="muted">Write YARA rules and click &quot;Run all rules&quot; to scan <strong>guest memory</strong> (VM address space, not the file on disk).</span>';
         yaraStatus.textContent = '';
         if (yaraMatchCount) yaraMatchCount.textContent = '';
         if (yaraSummary) yaraSummary.textContent = '';
+        setYaraScanContextBanner(null);
         if (yaraProgressWrap) yaraProgressWrap.setAttribute('aria-hidden', 'true');
     });
 }
@@ -6508,7 +6614,7 @@ if (yaraFileInput) {
         reader.onload = () => {
             yaraEditor.value = reader.result;
             refreshYaraHighlight();
-            yaraStatus.textContent = `Loaded: ${file.name}. Click "Run all rules" to see results.`;
+            yaraStatus.textContent = `Loaded: ${file.name}. Click "Run editor rules" to scan guest memory, or "Run all rules" for every built-in + YARA-Forge rule.`;
         };
         reader.readAsText(file);
         yaraFileInput.value = '';
@@ -6535,13 +6641,13 @@ if (yaraExampleSelect) {
                 yaraEditor.value = r.source;
                 _lastSelectedRuleSource = r.source;
                 _lastSelectedRuleName = r.name;
-                yaraStatus.textContent = `YARA-Forge: ${r.name}. Click "Run selected rule" to scan with this rule only.`;
+                yaraStatus.textContent = `YARA-Forge: ${r.name}. Click "Run editor rules" to scan guest memory with this rule.`;
             }
         } else if (YARA_EXAMPLES[key]) {
             yaraEditor.value = YARA_EXAMPLES[key];
             _lastSelectedRuleSource = YARA_EXAMPLES[key];
             _lastSelectedRuleName = key;
-            yaraStatus.textContent = `Example: ${key}. Click "Run selected rule" to scan with this rule only.`;
+            yaraStatus.textContent = `Example: ${key}. Click "Run editor rules" to scan guest memory.`;
         }
         refreshYaraHighlight();
         yaraExampleSelect.value = '';

@@ -505,9 +505,15 @@
                 </div>
                 <div class="tab-content" id="yara-tab">
                     <div class="yara-controls">
-                        <button class="btn btn-sm btn-primary" id="btn-yara-run-all">Run all rules</button>
-                        <button class="btn btn-sm" id="btn-yara-run-selected" type="button" title="Run the rule(s) currently in the editor">Run selected rule</button>
-                        <button class="btn btn-sm" id="btn-yara-scan">Scan Memory</button>
+                        <label class="yara-scan-target-label" title="Guest memory: all readable VM pages (heap, stack, mmap, …). Uploaded file: the raw ELF/PE/shellcode bytes you loaded (static image).">
+                            <span>Scan target</span>
+                            <select id="yara-scan-target" class="yara-scan-target-select">
+                                <option value="guest_memory" selected>Guest memory</option>
+                                <option value="uploaded_file">Uploaded file</option>
+                            </select>
+                        </label>
+                        <button class="btn btn-sm btn-primary" id="btn-yara-run-all" type="button" title="Concatenate every built-in example rule plus all fetched YARA-Forge rules, then run the scan for the selected target">Run all rules</button>
+                        <button class="btn btn-sm" id="btn-yara-run-selected" type="button" title="Scan guest memory using only what is in the editor below (same memory as Run all rules; different rule set)">Run editor rules</button>
                         <button class="btn btn-sm" id="btn-yara-clear">Clear</button>
                         <label class="btn btn-sm btn-file-label" title="Load .yar file">
                             Load File
@@ -553,8 +559,9 @@
                                 <span id="yara-match-count" class="yara-match-count"></span>
                                 <span id="yara-summary" class="yara-summary"></span>
                             </div>
+                            <div id="yara-scan-context" class="yara-scan-context" hidden></div>
                             <div class="yara-results" id="yara-results">
-                                <span class="muted">Write YARA rules and click &quot;Run all rules&quot; to scan memory and see all results.</span>
+                                <span class="muted">Write YARA rules and click &quot;Run all rules&quot; to scan <strong>guest memory</strong> (the VM’s mapped address space — not the file on disk) and see matches here.</span>
                             </div>
                         </div>
                     </div>
@@ -815,7 +822,7 @@
     <script>
     (function(){
         // Update this date when you make changes (YYYY-MM-DD). Shown in footer as "last updated".
-        var LAST_UPDATED = '2026-03-02';
+        var LAST_UPDATED = '2026-03-29';
         var el = document.getElementById('footer-date');
         if (el) {
             var d = new Date(LAST_UPDATED + 'T12:00:00');
