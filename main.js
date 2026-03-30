@@ -66,6 +66,126 @@ let fnAddrMap = new Map();   // addr → name, rebuilt when elfFunctions changes
 // Last step accesses (for non-trace mode highlighting)
 let lastMemAccesses = [];
 
+const MEM_ACCESS_COLORS_KEY = 'binb-mem-access-colors';
+
+function hexToRgbMem(hex) {
+    const h = hex.replace(/^#/, '');
+    const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+/** Normalize CSS color to #rrggbb for `<input type="color">`. */
+function cssColorToHexForInput(computed) {
+    const v = (computed || '').trim();
+    if (!v) return null;
+    if (v.startsWith('#')) {
+        if (v.length === 7) return v.toLowerCase();
+        if (v.length === 4) {
+            return `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`.toLowerCase();
+        }
+    }
+    const m = v.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+    if (m) {
+        const x = (n) => parseInt(n, 10).toString(16).padStart(2, '0');
+        return `#${x(m[1])}${x(m[2])}${x(m[3])}`;
+    }
+    return null;
+}
+
+function getMemAccessColorHex(varName, fallback) {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    return cssColorToHexForInput(raw) || fallback;
+}
+
+/** Apply read/write picks to CSS variables (cell tints, badges, timeline). */
+function applyMemAccessColorVars(readHex, writeHex) {
+    const rr = hexToRgbMem(readHex);
+    const ww = hexToRgbMem(writeHex);
+    const root = document.documentElement.style;
+    root.setProperty('--mem-access-read', readHex);
+    root.setProperty('--mem-access-read-bg', `rgba(${rr.r},${rr.g},${rr.b},0.28)`);
+    root.setProperty('--mem-access-read-badge-bg', `rgba(${rr.r},${rr.g},${rr.b},0.2)`);
+    root.setProperty('--mem-access-write', writeHex);
+    root.setProperty('--mem-access-write-bg', `rgba(${ww.r},${ww.g},${ww.b},0.36)`);
+    root.setProperty('--mem-access-write-badge-bg', `rgba(${ww.r},${ww.g},${ww.b},0.22)`);
+    const mx = Math.round((rr.r + ww.r) / 2);
+    const my = Math.round((rr.g + ww.g) / 2);
+    const mz = Math.round((rr.b + ww.b) / 2);
+    root.setProperty('--mem-access-rw', writeHex);
+    root.setProperty('--mem-access-rw-bg', `rgba(${mx},${my},${mz},0.32)`);
+}
+
+function clearMemAccessColorOverrides() {
+    const keys = [
+        '--mem-access-read', '--mem-access-read-bg', '--mem-access-read-badge-bg',
+        '--mem-access-write', '--mem-access-write-bg', '--mem-access-write-badge-bg',
+        '--mem-access-rw', '--mem-access-rw-bg',
+    ];
+    keys.forEach((k) => document.documentElement.style.removeProperty(k));
+}
+
+function syncMemAccessColorInputs() {
+    const readIn = document.getElementById('mem-access-color-read');
+    const writeIn = document.getElementById('mem-access-color-write');
+    if (!readIn || !writeIn) return;
+    readIn.value = getMemAccessColorHex('--mem-access-read', '#b7a42e');
+    writeIn.value = getMemAccessColorHex('--mem-access-write', '#fef08a');
+}
+
+function loadMemAccessColorsFromStorage() {
+    let raw;
+    try {
+        raw = localStorage.getItem(MEM_ACCESS_COLORS_KEY);
+    } catch (_) {
+        return;
+    }
+    if (!raw) return;
+    try {
+        const o = JSON.parse(raw);
+        if (o && /^#[0-9a-fA-F]{6}$/.test(o.read) && /^#[0-9a-fA-F]{6}$/.test(o.write)) {
+            applyMemAccessColorVars(o.read.toLowerCase(), o.write.toLowerCase());
+        }
+    } catch (_) { /* ignore */ }
+}
+
+function persistMemAccessColors(readHex, writeHex) {
+    try {
+        localStorage.setItem(MEM_ACCESS_COLORS_KEY, JSON.stringify({ read: readHex, write: writeHex }));
+    } catch (_) { /* ignore */ }
+}
+
+function setupMemAccessColorPickers() {
+    const readIn = document.getElementById('mem-access-color-read');
+    const writeIn = document.getElementById('mem-access-color-write');
+    const resetBtn = document.getElementById('btn-mem-access-colors-reset');
+    if (!readIn || !writeIn) return;
+
+    syncMemAccessColorInputs();
+
+    const onChange = () => {
+        const r = readIn.value;
+        const w = writeIn.value;
+        applyMemAccessColorVars(r, w);
+        persistMemAccessColors(r, w);
+        if (typeof refreshMemory === 'function') refreshMemory();
+        if (typeof renderTimeline === 'function') renderTimeline(traceCursor);
+    };
+    readIn.addEventListener('input', onChange);
+    writeIn.addEventListener('input', onChange);
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            try {
+                localStorage.removeItem(MEM_ACCESS_COLORS_KEY);
+            } catch (_) { /* ignore */ }
+            clearMemAccessColorOverrides();
+            syncMemAccessColorInputs();
+            if (typeof refreshMemory === 'function') refreshMemory();
+            if (typeof renderTimeline === 'function') renderTimeline(traceCursor);
+        });
+    }
+}
+
 // Memory search: query string, matches in current view [{start,end}], current match index
 let memSearchQuery = '';
 let memSearchMatches = [];
@@ -318,6 +438,7 @@ async function boot() {
             if (typeof refreshMemory === 'function') refreshMemory();
         });
     }
+    setupMemAccessColorPickers();
 }
 
 boot();
@@ -373,6 +494,22 @@ function applyTheme(theme, options) {
     if (v === 'nyan' && opts.playNyan !== false) {
         playNyanCatRun();
     }
+    try {
+        let hasCustom = false;
+        try {
+            const raw = localStorage.getItem(MEM_ACCESS_COLORS_KEY);
+            if (raw) {
+                const o = JSON.parse(raw);
+                if (o && /^#[0-9a-fA-F]{6}$/.test(o.read) && /^#[0-9a-fA-F]{6}$/.test(o.write)) {
+                    hasCustom = true;
+                }
+            }
+        } catch (_) { /* ignore */ }
+        if (!hasCustom) clearMemAccessColorOverrides();
+        else loadMemAccessColorsFromStorage();
+        syncMemAccessColorInputs();
+        if (typeof renderTimeline === 'function') renderTimeline(traceCursor);
+    } catch (_) { /* ignore */ }
 }
 
 function playNyanCatRun() {
@@ -400,13 +537,23 @@ function setupI18n() {
                 applyTheme(saved, { playNyan: false });
             } else {
                 themeSelect.value = 'dark';
+                applyTheme('dark', { playNyan: false });
             }
         } catch (_) {
             themeSelect.value = 'dark';
+            applyTheme('dark', { playNyan: false });
         }
         themeSelect.addEventListener('change', () => {
             applyTheme(themeSelect.value);
         });
+    } else {
+        try {
+            const saved = localStorage.getItem('binb-theme');
+            const v = ['dark', 'light', 'unicorn', 'rainbow', 'nyan'].includes(saved) ? saved : 'dark';
+            applyTheme(v, { playNyan: false });
+        } catch (_) {
+            applyTheme('dark', { playNyan: false });
+        }
     }
     const langSelect = document.getElementById('lang-select');
     if (langSelect) {
@@ -5597,6 +5744,8 @@ function renderTimeline(selectedIdx) {
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.beginPath(); ctx.moveTo(0, laneMemY); ctx.lineTo(width, laneMemY); ctx.stroke();
 
+    const memReadFill = getMemAccessColorHex('--mem-access-read', '#b7a42e');
+    const memWriteFill = getMemAccessColorHex('--mem-access-write', '#fef08a');
     try {
         const actJson = emulator.get_trace_mem_activity_ranged(zStart, zEnd, width * 2);
         const actSamples = JSON.parse(actJson);
@@ -5604,18 +5753,15 @@ function renderTimeline(selectedIdx) {
             if (activity === 0) continue;
             const x = ((localIdx - zStart) / zSpan) * width;
             if (activity === 3) {
-                // Both read + write: bright yellow (write dominates, underlined by read)
-                ctx.fillStyle = '#b7a42e';
+                ctx.fillStyle = memReadFill;
                 ctx.fillRect(x, laneMemY + 1, Math.max(1, colWidth), laneMemH - 2);
-                ctx.fillStyle = '#fef08a';
+                ctx.fillStyle = memWriteFill;
                 ctx.fillRect(x, laneMemY + 1, Math.max(1, colWidth), Math.floor((laneMemH - 2) / 2));
             } else if (activity === 2) {
-                // Write only: bright yellow
-                ctx.fillStyle = '#fef08a';
+                ctx.fillStyle = memWriteFill;
                 ctx.fillRect(x, laneMemY + 1, Math.max(1, colWidth), laneMemH - 2);
             } else {
-                // Read only: dark yellow
-                ctx.fillStyle = '#b7a42e';
+                ctx.fillStyle = memReadFill;
                 ctx.fillRect(x, laneMemY + 1, Math.max(1, colWidth), laneMemH - 2);
             }
         }
@@ -5624,9 +5770,9 @@ function renderTimeline(selectedIdx) {
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.fillText('MEM', 3, laneMemY + 10);
     // Legend
-    ctx.fillStyle = '#b7a42e';
+    ctx.fillStyle = memReadFill;
     ctx.fillText('R', 32, laneMemY + 10);
-    ctx.fillStyle = '#fef08a';
+    ctx.fillStyle = memWriteFill;
     ctx.fillText('W', 42, laneMemY + 10);
 
     // ── Lane 2: daddr-specific access markers ──
@@ -5643,7 +5789,7 @@ function renderTimeline(selectedIdx) {
             const hits = JSON.parse(hitsJson);
             for (const [hitIdx, isWrite] of hits) {
                 const x = ((hitIdx - zStart) / zSpan) * width;
-                ctx.fillStyle = isWrite > 0 ? '#fef08a' : '#b7a42e';
+                ctx.fillStyle = isWrite > 0 ? memWriteFill : memReadFill;
                 ctx.fillRect(x, laneDaddrY + 1, Math.max(1, colWidth), laneDaddrH - 2);
             }
         } catch (e) { /* ignore */ }

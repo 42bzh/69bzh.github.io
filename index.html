@@ -119,12 +119,12 @@
                     <h3 data-i18n="helpColorLegend">Color Legend</h3>
                     <div class="help-colors">
                         <div class="help-color-row">
-                            <span class="help-swatch" style="background: var(--yellow-dark)"></span>
-                            <span data-i18n="helpColorDarkYellow">Dark yellow — Memory read (QIRA-style)</span>
+                            <span class="help-swatch help-swatch-mem-read"></span>
+                            <span data-i18n="helpMemAccessReadLegend">Memory read — QIRA-style dark yellow by default (customize on Memory tab)</span>
                         </div>
                         <div class="help-color-row">
-                            <span class="help-swatch" style="background: var(--yellow-bright)"></span>
-                            <span data-i18n="helpColorBrightYellow">Bright yellow — Memory write (QIRA-style)</span>
+                            <span class="help-swatch help-swatch-mem-write"></span>
+                            <span data-i18n="helpMemAccessWriteLegend">Memory write — QIRA-style bright yellow by default (customize on Memory tab)</span>
                         </div>
                         <div class="help-color-row">
                             <span class="help-swatch" style="background: var(--accent)"></span>
@@ -153,11 +153,12 @@
                     <h3 data-i18n="helpTimelineLanes">Timeline Lanes (Timeless Mode)</h3>
                     <table class="help-table">
                         <tr><td><strong data-i18n="helpRIP">RIP</strong></td><td data-i18n="helpRIPDesc">Color-coded instruction address map</td></tr>
-                        <tr><td><strong data-i18n="helpMEM">MEM</strong></td><td data-i18n="helpMEMDesc">All memory reads (dark yellow) and writes (bright yellow) per instruction</td></tr>
+                        <tr><td><strong data-i18n="helpMEM">MEM</strong></td><td data-i18n="helpMEMDesc">All memory reads and writes per instruction (colors: Memory tab)</td></tr>
                         <tr><td><strong data-i18n="helpDADDR">DADDR</strong></td><td data-i18n="helpDADDRDesc">Accesses to the tracked data address (visible when a Memory breakpoint is set)</td></tr>
                         <tr><td><strong data-i18n="helpEXEC">EXEC</strong></td><td data-i18n="helpEXECDesc">Execution breakpoint hits (click RIP in registers to set)</td></tr>
                         <tr><td><strong data-i18n="helpFLOW">FLOW</strong></td><td data-i18n="helpFLOWDesc">Blue (forward) and red (backward) trails from cursor</td></tr>
                     </table>
+                    <p class="help-note" data-i18n="helpMEMSyscallNote">On a syscall step, R means the handler read guest memory; W means it wrote guest memory (e.g. write() reads your buffer → R; read() fills your buffer → W).</p>
                 </section>
 
                 <section class="help-section">
@@ -165,7 +166,7 @@
                     <p class="help-lead" data-i18n="helpMemBpLead">Track a memory address to see every read/write on the timeline and jump between accesses.</p>
                     <ol class="help-steps">
                         <li data-i18n="helpMemBpSet">Set: In the Memory tab, <strong>click a byte</strong> in the hex dump (or in the Memory Accesses preview). That address becomes the “tracked” address (daddr). In trace mode the view jumps to the last access.</li>
-                        <li data-i18n="helpMemBpTimeline">Timeline: The DADDR lane shows every read/write to that address (yellow = read, blue = write).</li>
+                        <li data-i18n="helpMemBpTimeline">Timeline: The DADDR lane shows every read/write to that address (same read/write colors as the Memory tab).</li>
                         <li data-i18n="helpMemBpNavigate">Navigate: Press J / K to jump to the next / previous access in the trace.</li>
                         <li data-i18n="helpMemBpClear">Clear: Click the daddr value in the info bar (e.g. 0x1234 (1B)) to clear the memory breakpoint.</li>
                     </ol>
@@ -415,6 +416,13 @@
                         <span class="mem-entropy-legend" data-i18n-title="memEntropyTitle">
                             <span class="mem-entropy-legend-label">H:</span>
                             <span class="mem-entropy-legend-bar" id="mem-entropy-legend-bar"></span>
+                        </span>
+                        <span class="mem-access-colors-wrap" data-i18n-title="memAccessColorsTitle">
+                            <span class="mem-access-colors-label" data-i18n="memAccessReadShort">Read</span>
+                            <input type="color" id="mem-access-color-read" class="mem-access-color-input" value="#b7a42e" data-i18n-title="memAccessReadColorTitle" title="Memory read highlight">
+                            <span class="mem-access-colors-label" data-i18n="memAccessWriteShort">Write</span>
+                            <input type="color" id="mem-access-color-write" class="mem-access-color-input" value="#fef08a" data-i18n-title="memAccessWriteColorTitle" title="Memory write highlight">
+                            <button type="button" class="btn btn-sm mem-access-colors-reset" id="btn-mem-access-colors-reset" data-i18n="memAccessColorsReset" data-i18n-title="memAccessColorsResetTitle">Reset</button>
                         </span>
                         <label class="mem-palette-wrap" data-i18n-title="memPaletteTitle">
                             <span class="mem-palette-label" data-i18n="memPalette">Palette</span>

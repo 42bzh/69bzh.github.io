@@ -25,6 +25,15 @@
     --yellow-bright: #fef08a;
     --orange: #ed8936;
     --purple: #b794f4;
+    /* Memory trace R/W — QIRA-style yellow pair by default; overridable via Memory tab pickers */
+    --mem-access-read: var(--yellow-dark);
+    --mem-access-read-bg: rgba(183, 164, 46, 0.25);
+    --mem-access-read-badge-bg: rgba(183, 164, 46, 0.2);
+    --mem-access-write: var(--yellow-bright);
+    --mem-access-write-bg: rgba(254, 240, 138, 0.35);
+    --mem-access-write-badge-bg: rgba(254, 240, 138, 0.2);
+    --mem-access-rw: var(--yellow-bright);
+    --mem-access-rw-bg: rgba(237, 137, 54, 0.3);
     --mono: "SF Mono", "Fira Code", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --radius: 8px;
@@ -47,6 +56,14 @@
     --yellow-bright: #d69e2e;
     --orange: #c05621;
     --purple: #553c9a;
+    --mem-access-read: var(--yellow-dark);
+    --mem-access-read-bg: rgba(151, 90, 22, 0.2);
+    --mem-access-read-badge-bg: rgba(151, 90, 22, 0.16);
+    --mem-access-write: var(--yellow-bright);
+    --mem-access-write-bg: rgba(214, 158, 46, 0.28);
+    --mem-access-write-badge-bg: rgba(214, 158, 46, 0.18);
+    --mem-access-rw: var(--yellow-bright);
+    --mem-access-rw-bg: rgba(192, 86, 33, 0.22);
 }
 
 /* Unicorn theme — soft pastels, magical ✨ */
@@ -66,6 +83,14 @@
     --yellow-bright: #ffcc80;
     --orange: #ff7043;
     --purple: #ba68c8;
+    --mem-access-read: var(--yellow-dark);
+    --mem-access-read-bg: rgba(255, 143, 0, 0.22);
+    --mem-access-read-badge-bg: rgba(255, 143, 0, 0.18);
+    --mem-access-write: var(--yellow-bright);
+    --mem-access-write-bg: rgba(255, 204, 128, 0.32);
+    --mem-access-write-badge-bg: rgba(255, 204, 128, 0.22);
+    --mem-access-rw: var(--yellow-bright);
+    --mem-access-rw-bg: rgba(255, 112, 67, 0.26);
 }
 
 /* Rainbow theme — vivid and cheerful 🌈 */
@@ -85,6 +110,14 @@
     --yellow-bright: #fef08a;
     --orange: #fb923c;
     --purple: #c084fc;
+    --mem-access-read: var(--yellow-dark);
+    --mem-access-read-bg: rgba(234, 179, 8, 0.28);
+    --mem-access-read-badge-bg: rgba(234, 179, 8, 0.22);
+    --mem-access-write: var(--yellow-bright);
+    --mem-access-write-bg: rgba(254, 240, 138, 0.35);
+    --mem-access-write-badge-bg: rgba(254, 240, 138, 0.2);
+    --mem-access-rw: var(--yellow-bright);
+    --mem-access-rw-bg: rgba(251, 146, 60, 0.3);
 }
 
 /* Rainbow theme: subtle gradient on body for extra flair */
@@ -109,6 +142,14 @@
     --yellow-bright: #fef08a;
     --orange: #fb923c;
     --purple: #c084fc;
+    --mem-access-read: var(--yellow-dark);
+    --mem-access-read-bg: rgba(250, 204, 21, 0.28);
+    --mem-access-read-badge-bg: rgba(250, 204, 21, 0.22);
+    --mem-access-write: var(--yellow-bright);
+    --mem-access-write-bg: rgba(254, 240, 138, 0.35);
+    --mem-access-write-badge-bg: rgba(254, 240, 138, 0.2);
+    --mem-access-rw: var(--yellow-bright);
+    --mem-access-rw-bg: rgba(251, 146, 60, 0.3);
 }
 
 :root[data-theme="nyan"] body {
@@ -1205,11 +1246,40 @@ header {
 .memory-controls {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.4rem;
     padding: 0.4rem 0.75rem;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+}
+
+.mem-access-colors-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    flex-shrink: 0;
+}
+.mem-access-colors-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.mem-access-color-input {
+    width: 1.75rem;
+    height: 1.35rem;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+    cursor: pointer;
+    vertical-align: middle;
+}
+.mem-access-colors-reset {
+    font-size: 0.65rem;
+    padding: 0.1rem 0.35rem;
+    margin-left: 0.1rem;
+    line-height: 1.2;
 }
 
 .mem-addr-input {
@@ -2026,24 +2096,23 @@ footer .footer-beta {
 [data-mem-palette="vivid"] .mem-byte-v14 { color: #f97316; background: rgba(249, 115, 22, 0.28);  }
 [data-mem-palette="vivid"] .mem-byte-v15 { color: #eab308; background: rgba(234, 179, 8, 0.28);   }
 
-/* Memory access highlighting in hex dump — QIRA-style with visible background blocks
-   reads = amber/dark yellow tint, writes = bright yellow tint, rw = orange tint */
+/* Memory access highlighting in hex dump — read vs write (defaults: cyan vs orange; customizable) */
 .mem-byte-read {
-    color: var(--yellow-dark);
-    background: rgba(183, 164, 46, 0.25);
+    color: var(--mem-access-read);
+    background: var(--mem-access-read-bg);
     border-radius: 2px;
 }
 .mem-byte-write {
-    color: var(--yellow-bright);
+    color: var(--mem-access-write);
     font-weight: 700;
-    background: rgba(254, 240, 138, 0.35);
+    background: var(--mem-access-write-bg);
     border-radius: 2px;
 }
 .mem-byte-rw {
-    color: var(--yellow-bright);
+    color: var(--mem-access-rw);
     font-weight: 700;
     text-decoration: underline;
-    background: rgba(237, 137, 54, 0.3);
+    background: var(--mem-access-rw-bg);
     border-radius: 2px;
 }
 
@@ -2131,11 +2200,11 @@ footer .footer-beta {
     align-items: center;
 }
 .mem-legend-read {
-    color: var(--yellow-dark);
+    color: var(--mem-access-read);
     font-weight: 700;
 }
 .mem-legend-write {
-    color: var(--yellow-bright);
+    color: var(--mem-access-write);
     font-weight: 700;
 }
 
@@ -2241,8 +2310,8 @@ footer .footer-beta {
     border-left: 3px solid transparent;
 }
 .acc-entry:hover { background: var(--surface-2); }
-.acc-entry.acc-read { border-left-color: var(--yellow-dark); }
-.acc-entry.acc-write { border-left-color: var(--yellow-bright); }
+.acc-entry.acc-read { border-left-color: var(--mem-access-read); }
+.acc-entry.acc-write { border-left-color: var(--mem-access-write); }
 
 .acc-type {
     font-weight: 700;
@@ -2252,8 +2321,8 @@ footer .footer-beta {
     min-width: 1.5ch;
     text-align: center;
 }
-.acc-read .acc-type { background: rgba(183, 164, 46, 0.2); color: var(--yellow-dark); }
-.acc-write .acc-type { background: rgba(254, 240, 138, 0.2); color: var(--yellow-bright); }
+.acc-read .acc-type { background: var(--mem-access-read-badge-bg); color: var(--mem-access-read); }
+.acc-write .acc-type { background: var(--mem-access-write-badge-bg); color: var(--mem-access-write); }
 
 .acc-addr {
     color: var(--accent);
@@ -2768,6 +2837,8 @@ footer .footer-beta {
     flex-shrink: 0;
     border: 1px solid rgba(255,255,255,0.1);
 }
+.help-swatch-mem-read { background: var(--mem-access-read); }
+.help-swatch-mem-write { background: var(--mem-access-write); }
 .help-table {
     width: 100%;
     border-collapse: collapse;
