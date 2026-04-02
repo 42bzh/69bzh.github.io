@@ -370,6 +370,56 @@ header {
 }
 .program-args-input::placeholder { color: var(--text-muted); }
 
+.vt-hash-input {
+    min-width: 10rem;
+    max-width: 22rem;
+    flex: 0 1 16rem;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.72rem;
+    font-family: var(--mono);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text);
+}
+.vt-hash-input::placeholder { color: var(--text-muted); }
+
+.prefs-modal .prefs-note {
+    font-size: 0.82rem;
+    margin-bottom: 0.75rem;
+    line-height: 1.45;
+}
+.prefs-label {
+    display: block;
+    font-size: 0.8rem;
+    margin-top: 0.35rem;
+    margin-bottom: 0.25rem;
+    color: var(--text);
+}
+.prefs-input {
+    width: 100%;
+    max-width: 420px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.8rem;
+    font-family: var(--mono);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+}
+.prefs-input::placeholder { color: var(--text-muted); }
+.prefs-key-status {
+    font-size: 0.75rem;
+    margin: 0.45rem 0 0;
+    min-height: 1.2em;
+}
+.prefs-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.65rem;
+}
+
 .sysroot-name {
     color: var(--text-muted);
     font-size: 0.75rem;
@@ -2413,6 +2463,17 @@ footer .footer-beta {
 /* ── VFS tab ───────────────────────────────────────────────────────────── */
 .vfs-header { font-size: 0.75rem; margin-bottom: 0.5rem; }
 .vfs-add-section { margin-bottom: 0.5rem; }
+.vfs-path-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.4rem;
+    margin-bottom: 0.35rem;
+}
+.vfs-path-row .vfs-path-input {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0;
+}
 .vfs-path-input {
     width: 100%;
     box-sizing: border-box;
@@ -2553,6 +2614,7 @@ footer .footer-beta {
 /* ── Summary & Help buttons ─────────────────────────────────────────── */
 
 .header-actions .btn-summary,
+.header-actions .btn-prefs,
 .header-actions .btn-help {
     width: 28px;
     height: 28px;
@@ -2573,6 +2635,12 @@ footer .footer-beta {
     color: var(--text-muted);
 }
 .header-actions .btn-summary:hover { background: var(--border); color: var(--text); }
+.header-actions .btn-prefs {
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1;
+}
+.header-actions .btn-prefs:hover { background: var(--border); color: var(--text); }
 .header-actions .btn-help {
     color: var(--accent);
 }
@@ -3534,6 +3602,7 @@ body.dragover::after {
     .header-actions .theme-select,
     .header-actions .lang-select,
     .header-actions .btn-summary,
+    .header-actions .btn-prefs,
     .header-actions .btn-help {
         min-width: 44px;
         min-height: 44px;

@@ -261,8 +261,19 @@ function entropyToColor(e) {
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 
+const VT_APIKEY_STORAGE = 'binb-vt-apikey';
+
 const btnUpload    = document.getElementById('btn-upload');
 const elfUpload    = document.getElementById('elf-upload');
+const btnPrefs     = document.getElementById('btn-prefs');
+const prefsModal   = document.getElementById('prefs-modal');
+const btnPrefsClose = document.getElementById('btn-prefs-close');
+const vtApiKeyInput = document.getElementById('vt-apikey-input');
+const vtKeyStatus  = document.getElementById('vt-key-status');
+const btnVtSaveKey = document.getElementById('btn-vt-save-key');
+const btnVtClearKey = document.getElementById('btn-vt-clear-key');
+const vtHashInput  = document.getElementById('vt-hash-input');
+const btnVtLoad    = document.getElementById('btn-vt-load');
 const fileName     = document.getElementById('file-name');
 const fileInfoBadge = document.getElementById('file-info-badge');
 const sysrootZipUpload = document.getElementById('sysroot-zip-upload');
@@ -408,6 +419,7 @@ async function boot() {
     setupShellcodePanel();
     setupKeyboard();
     setupHelpModal();
+    setupPrefsModal();
     setupSummaryModal();
     setupI18n();
     // Build entropy legend gradient in memory controls
@@ -462,6 +474,58 @@ function setupHelpModal() {
             e.stopPropagation();
         }
     });
+}
+
+function updateVtKeyStatusText() {
+    if (!vtKeyStatus) return;
+    try {
+        const has = !!(localStorage.getItem(VT_APIKEY_STORAGE) || '').trim();
+        vtKeyStatus.textContent = has ? t('prefsVtKeyStatusSaved') : t('prefsVtKeyStatusNone');
+    } catch (_) {
+        vtKeyStatus.textContent = t('prefsVtKeyStatusNone');
+    }
+}
+
+function setupPrefsModal() {
+    if (!prefsModal || !btnPrefs) return;
+
+    btnPrefs.addEventListener('click', () => {
+        prefsModal.style.display = 'flex';
+        if (vtApiKeyInput) vtApiKeyInput.value = '';
+        updateVtKeyStatusText();
+    });
+    if (btnPrefsClose) {
+        btnPrefsClose.addEventListener('click', () => { prefsModal.style.display = 'none'; });
+    }
+    prefsModal.addEventListener('click', (e) => {
+        if (e.target === prefsModal) prefsModal.style.display = 'none';
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && prefsModal.style.display === 'flex') {
+            prefsModal.style.display = 'none';
+            e.stopPropagation();
+        }
+    });
+    if (btnVtSaveKey && vtApiKeyInput) {
+        btnVtSaveKey.addEventListener('click', () => {
+            const key = vtApiKeyInput.value.trim();
+            if (!key) return;
+            try {
+                localStorage.setItem(VT_APIKEY_STORAGE, key);
+            } catch (err) {
+                console.warn('[binb] VT key save failed:', err);
+            }
+            vtApiKeyInput.value = '';
+            updateVtKeyStatusText();
+        });
+    }
+    if (btnVtClearKey) {
+        btnVtClearKey.addEventListener('click', () => {
+            try { localStorage.removeItem(VT_APIKEY_STORAGE); } catch (_) {}
+            if (vtApiKeyInput) vtApiKeyInput.value = '';
+            updateVtKeyStatusText();
+        });
+    }
 }
 
 function setupSummaryModal() {
@@ -564,6 +628,7 @@ function setupI18n() {
         if (fileName && !elfBytes && !pendingShellcodeBytes) fileName.textContent = t('fileNoFile');
         if (statusBadge) setStatus(_statusKey, _statusCls, _statusParam);
         if (daddr) updateDaddrDisplay();
+        if (prefsModal && prefsModal.style.display === 'flex') updateVtKeyStatusText();
     });
 }
 let _statusKey = 'statusIdle';
@@ -585,6 +650,122 @@ function isPe(bytes) {
     return bytes[e_lfanew] === 0x50 && bytes[e_lfanew + 1] === 0x45 && bytes[e_lfanew + 2] === 0 && bytes[e_lfanew + 3] === 0;
 }
 
+/** Apply loaded bytes like a file upload (ELF / PE / shellcode prompt). */
+async function applyLoadedBinary(bytes, displayName) {
+    elfBytes = bytes;
+    elfFileName = displayName;
+    if (fileName) fileName.textContent = displayName;
+    await updateFileInfoBadge(displayName, bytes);
+    if (isElf(bytes)) {
+        pendingShellcodeBytes = null;
+        hideShellcodeFilePrompt();
+        await fetchDemoSysrootIfNeeded(bytes, false);
+        console.log('[binb] ELF loaded, sysroot set?', !!pendingSysrootFiles, pendingSysrootFiles ? pendingSysrootFiles.paths.length + ' files' : '');
+        createEmulator(bytes);
+    } else if (isPe(bytes)) {
+        pendingShellcodeBytes = null;
+        hideShellcodeFilePrompt();
+        await fetchDemoSysrootIfNeeded(bytes, true);
+        console.log('[binb] PE loaded, sysroot set?', !!pendingSysrootFiles, pendingSysrootFiles ? pendingSysrootFiles.paths.length + ' files' : '');
+        createEmulator(bytes, { asPe: true });
+    } else {
+        pendingShellcodeBytes = bytes;
+        showShellcodeFilePrompt();
+    }
+}
+
+function normalizeVtFileHash(raw) {
+    const h = raw.trim().replace(/^0x/i, '').replace(/\s+/g, '');
+    if (!/^[a-fA-F0-9]+$/.test(h)) return null;
+    if (h.length === 32 || h.length === 40 || h.length === 64) return h.toLowerCase();
+    return null;
+}
+
+async function fetchVirusTotalFileBytes(hash, apiKey) {
+    const url = `https://www.virustotal.com/api/v3/files/${encodeURIComponent(hash)}/download`;
+    const resp = await fetch(url, {
+        method: 'GET',
+        headers: { 'x-apikey': apiKey },
+        redirect: 'follow',
+    });
+    const ct = (resp.headers.get('content-type') || '').toLowerCase();
+    if (!resp.ok) {
+        const text = await resp.text();
+        let detail = text.slice(0, 280) || resp.statusText || String(resp.status);
+        try {
+            const j = JSON.parse(text);
+            if (j && j.error && typeof j.error.message === 'string') detail = j.error.message;
+        } catch (_) { /* not JSON */ }
+        throw new Error(detail);
+    }
+    if (ct.includes('application/json')) {
+        const text = await resp.text();
+        let msg = 'Unexpected JSON from VirusTotal';
+        try {
+            const j = JSON.parse(text);
+            if (j && j.error && typeof j.error.message === 'string') msg = j.error.message;
+        } catch (_) { /* ignore */ }
+        throw new Error(msg);
+    }
+    return new Uint8Array(await resp.arrayBuffer());
+}
+
+async function loadBinaryFromVirusTotal() {
+    if (!vtHashInput) return;
+    let apiKey = '';
+    try {
+        apiKey = (localStorage.getItem(VT_APIKEY_STORAGE) || '').trim();
+    } catch (_) { /* ignore */ }
+    if (!apiKey) {
+        if (terminal) {
+            const span = document.createElement('span');
+            span.className = 'error';
+            span.textContent = t('vtLoadNeedKey');
+            terminal.appendChild(span);
+            terminal.appendChild(document.createTextNode('\n'));
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        return;
+    }
+    const hash = normalizeVtFileHash(vtHashInput.value);
+    if (!hash) {
+        if (terminal) {
+            const span = document.createElement('span');
+            span.className = 'error';
+            span.textContent = t('vtLoadBadHash');
+            terminal.appendChild(span);
+            terminal.appendChild(document.createTextNode('\n'));
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        return;
+    }
+    setStatus('statusLoading');
+    if (btnVtLoad) btnVtLoad.disabled = true;
+    try {
+        const bytes = await fetchVirusTotalFileBytes(hash, apiKey);
+        await applyLoadedBinary(bytes, `vt-${hash}`);
+        setStatus('statusReady');
+    } catch (e) {
+        const base = t('vtLoadFailed');
+        let msg = e && e.message ? String(e.message) : String(e);
+        if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+            msg = `${msg} — ${t('vtLoadCorsHint')}`;
+        }
+        if (terminal) {
+            const span = document.createElement('span');
+            span.className = 'error';
+            span.textContent = `${base} ${msg}`;
+            terminal.appendChild(span);
+            terminal.appendChild(document.createTextNode('\n'));
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        console.warn('[binb] VirusTotal download:', e);
+        setStatus('statusReady');
+    } finally {
+        if (btnVtLoad) btnVtLoad.disabled = false;
+    }
+}
+
 // ── File loading ────────────────────────────────────────────────────────────
 
 btnUpload.addEventListener('click', () => elfUpload.click());
@@ -601,24 +782,7 @@ if (btnDemo) {
                 return;
             }
             const bytes = new Uint8Array(await resp.arrayBuffer());
-            elfBytes = bytes;
-            elfFileName = 'hello-x64';
-            fileName.textContent = 'hello-x64';
-            await updateFileInfoBadge('hello-x64', bytes);
-            if (isElf(bytes)) {
-                pendingShellcodeBytes = null;
-                hideShellcodeFilePrompt();
-                await fetchDemoSysrootIfNeeded(bytes, false);
-                createEmulator(bytes);
-            } else if (isPe(bytes)) {
-                pendingShellcodeBytes = null;
-                hideShellcodeFilePrompt();
-                await fetchDemoSysrootIfNeeded(bytes, true);
-                createEmulator(bytes, { asPe: true });
-            } else {
-                pendingShellcodeBytes = bytes;
-                showShellcodeFilePrompt();
-            }
+            await applyLoadedBinary(bytes, 'hello-x64');
         } catch (e) {
             terminal.innerHTML = `<span class="error">Demo failed: ${escapeHtml(String(e.message || e))}. Ensure the app is served with \`${demoUrl}\` available.</span>\n`;
             setStatus('statusReady');
@@ -758,6 +922,13 @@ elfUpload.addEventListener('change', async (e) => {
     await loadFile(file);
 });
 
+if (btnVtLoad && vtHashInput) {
+    btnVtLoad.addEventListener('click', () => { loadBinaryFromVirusTotal(); });
+    vtHashInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') loadBinaryFromVirusTotal();
+    });
+}
+
 function parseProgramArgs(str) {
     if (!str || typeof str !== 'string') return [];
     return str.trim().split(/\s+/).filter(Boolean);
@@ -765,26 +936,7 @@ function parseProgramArgs(str) {
 
 async function loadFile(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    elfBytes = bytes;
-    elfFileName = file.name || 'program';
-    fileName.textContent = file.name;
-    updateFileInfoBadge(file.name, bytes);
-    if (isElf(bytes)) {
-        pendingShellcodeBytes = null;
-        hideShellcodeFilePrompt();
-        await fetchDemoSysrootIfNeeded(bytes, false);
-        console.log('[binb] ELF loaded, sysroot set?', !!pendingSysrootFiles, pendingSysrootFiles ? pendingSysrootFiles.paths.length + ' files' : '');
-        createEmulator(bytes);
-    } else if (isPe(bytes)) {
-        pendingShellcodeBytes = null;
-        hideShellcodeFilePrompt();
-        await fetchDemoSysrootIfNeeded(bytes, true);
-        console.log('[binb] PE loaded, sysroot set?', !!pendingSysrootFiles, pendingSysrootFiles ? pendingSysrootFiles.paths.length + ' files' : '');
-        createEmulator(bytes, { asPe: true });
-    } else {
-        pendingShellcodeBytes = bytes;
-        showShellcodeFilePrompt();
-    }
+    await applyLoadedBinary(bytes, file.name || 'program');
 }
 
 // ── File info badge & popup ─────────────────────────────────────────────────
@@ -1550,24 +1702,31 @@ function showVfsFile(path) {
         const idx = pendingSysrootFiles.paths.findIndex(p => p.replace(/^\//, '') === pathKey);
         if (idx >= 0 && pendingSysrootFiles.data[idx]) content = pendingSysrootFiles.data[idx];
     }
-    if (content == null || content.length === 0) {
+    if (content == null) {
         vfsDetailText.style.display = 'none';
         vfsDetailBinary.style.display = 'block';
         if (vfsDetailSize) vfsDetailSize.textContent = '0';
         vfsDetailSave.style.display = 'none';
     } else {
         const bytes = content instanceof Uint8Array ? content : new Uint8Array(content);
-        try {
-            const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-            vfsDetailText.value = text;
+        if (bytes.length === 0) {
+            vfsDetailText.value = '';
             vfsDetailText.style.display = 'block';
             vfsDetailBinary.style.display = 'none';
             vfsDetailSave.style.display = emulator ? '' : 'none';
-        } catch (_) {
-            vfsDetailText.style.display = 'none';
-            vfsDetailBinary.style.display = 'block';
-            if (vfsDetailSize) vfsDetailSize.textContent = String(bytes.length);
-            vfsDetailSave.style.display = 'none';
+        } else {
+            try {
+                const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+                vfsDetailText.value = text;
+                vfsDetailText.style.display = 'block';
+                vfsDetailBinary.style.display = 'none';
+                vfsDetailSave.style.display = emulator ? '' : 'none';
+            } catch (_) {
+                vfsDetailText.style.display = 'none';
+                vfsDetailBinary.style.display = 'block';
+                if (vfsDetailSize) vfsDetailSize.textContent = String(bytes.length);
+                vfsDetailSave.style.display = 'none';
+            }
         }
     }
     vfsDetail.style.display = 'block';
@@ -1623,6 +1782,30 @@ function setupVfsPanel() {
             emulator.add_vfs_file(selectedVfsPath, bytes);
             renderVfsList();
             showVfsFile(selectedVfsPath);
+        });
+    }
+    const btnVfsNewFile = document.getElementById('btn-vfs-new-file');
+    if (btnVfsNewFile) {
+        btnVfsNewFile.addEventListener('click', () => {
+            if (!emulator) return;
+            const raw = vfsPathInput.value.trim();
+            if (!raw) {
+                setStatus('vfsNewFileNeedPath', 'error');
+                return;
+            }
+            let p = raw.startsWith('/') ? raw : `/${raw}`;
+            if (p.endsWith('/') || p === '/') {
+                setStatus('vfsNewFileNeedFileName', 'error');
+                return;
+            }
+            try {
+                emulator.add_vfs_file(p, new Uint8Array(0));
+                vfsPathInput.value = '';
+                renderVfsList();
+                showVfsFile(p);
+            } catch (_) {
+                setStatus('statusError', 'error');
+            }
         });
     }
 }
@@ -4280,7 +4463,20 @@ function parseHexQuery(str) {
 function detectSearchMode(query) {
     const q = query.trim();
     if (/^\/.*\/[gimsuy]*$/.test(q)) return 'regex';
-    if (/^([0-9a-fA-Fx\s]+)$/.test(q) && /[0-9a-fA-F]/.test(q)) return 'hex';
+    // Avoid treating plain ASCII like "feed" / "bad" as hex. Use hex only when unambiguous.
+    if (/\?\?/.test(q)) return 'hex';
+    if (/0[xX][0-9a-fA-F]+/.test(q)) return 'hex';
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const hexishToken = (t) => {
+        const s = t.replace(/^0x/i, '');
+        return /^[0-9a-fA-F?]{1,2}$/.test(s)
+            || (s.length % 2 === 0 && /^[0-9a-fA-F?]+$/.test(s));
+    };
+    if (tokens.length >= 2 && tokens.every(hexishToken)) return 'hex';
+    if (tokens.length === 1) {
+        const s = tokens[0].replace(/^0x/i, '');
+        if (/^[0-9a-fA-F]+$/.test(s) && s.length >= 8 && s.length % 2 === 0) return 'hex';
+    }
     return 'string';
 }
 
@@ -4417,6 +4613,24 @@ function updateMemSearchStatus() {
         memSearchStatus.textContent = `${memSearchCurrentIndex + 1}/${memSearchMatches.length}${cap}`;
         memSearchStatus.className = 'mem-search-status';
     }
+}
+
+/** Re-run global memory search against current guest RAM (e.g. after trace seek replays memory). */
+function refreshMemorySearchMatchesForCurrentVmState() {
+    if (!emulator || !memSearchQuery.trim()) return;
+    const mode = memSearchMode ? memSearchMode.value : 'auto';
+    memSearchMatches = searchAllMemory(memSearchQuery, mode);
+    memSearchCurrentIndex = memSearchMatches.length > 0 ? 0 : -1;
+    updateMemSearchStatus();
+}
+
+/** After trace seek: rescan memory search against replayed RAM, then repaint (must be synchronous). */
+function requestMemorySearchRescanThenRefresh() {
+    if (!emulator) return;
+    if (memSearchQuery.trim()) {
+        refreshMemorySearchMatchesForCurrentVmState();
+    }
+    refreshMemory();
 }
 
 // ── Disassembly search ──────────────────────────────────────────────────────
@@ -5458,7 +5672,12 @@ function seekTrace(idx) {
                 memAddr.value = '0x' + lineAligned.toString(16);
             }
         }
-        refreshMemory();
+        // Memory search hits are absolute addresses from the last scan; after replay, RAM may differ.
+        if (memSearchQuery.trim()) {
+            requestMemorySearchRescanThenRefresh();
+        } else {
+            refreshMemory();
+        }
     } else if (memAutoRefresh.checked) {
         refreshMemory();
     }
@@ -5487,6 +5706,9 @@ function exitTraceMode() {
     if (memFollowWrap) memFollowWrap.style.display = 'none';
     if (emulator && !emulator.is_exited()) {
         setStatus('statusReady');
+    }
+    if (memSearchQuery.trim()) {
+        refreshMemorySearchMatchesForCurrentVmState();
     }
     updateFullUI();
 }

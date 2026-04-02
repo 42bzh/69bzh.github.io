@@ -39,6 +39,7 @@
                 <option value="zh">中文</option>
             </select>
             <button class="btn btn-summary" id="btn-summary" data-i18n="summaryBtn" data-i18n-title="summaryTitle">!</button>
+            <button type="button" class="btn btn-prefs" id="btn-prefs" data-i18n-title="prefsTitle" aria-label="Preferences">⚙</button>
             <button class="btn btn-help" id="btn-help" data-i18n-title="helpTitle">?</button>
         </div>
     </header>
@@ -228,6 +229,29 @@
         </div>
     </div>
 
+    <!-- Preferences (API keys — values never shown after save) -->
+    <div class="help-modal-backdrop" id="prefs-modal" style="display:none">
+        <div class="help-modal prefs-modal">
+            <div class="help-modal-header">
+                <h2 data-i18n="prefsTitle">Preferences</h2>
+                <button type="button" class="btn btn-xs help-modal-close" id="btn-prefs-close">&times;</button>
+            </div>
+            <div class="help-modal-body">
+                <section class="help-section prefs-section">
+                    <h3 data-i18n="prefsVtHeading">VirusTotal</h3>
+                    <p class="help-lead prefs-note" data-i18n="prefsVtNote"></p>
+                    <label class="prefs-label" for="vt-apikey-input"><span data-i18n="prefsVtApiKeyLabel">API key</span></label>
+                    <input type="password" id="vt-apikey-input" class="prefs-input" autocomplete="off" spellcheck="false" data-i18n-placeholder="prefsVtApiKeyPlaceholder">
+                    <p class="prefs-key-status muted" id="vt-key-status"></p>
+                    <div class="prefs-actions">
+                        <button type="button" class="btn btn-primary btn-sm" id="btn-vt-save-key" data-i18n="prefsVtSaveKey">Save key</button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-vt-clear-key" data-i18n="prefsVtClearKey">Clear key</button>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
     <main>
         <!-- Controls Bar -->
         <section class="controls">
@@ -235,6 +259,8 @@
                 <button class="btn btn-demo" id="btn-demo" data-i18n="btnDemo" data-i18n-title="btnDemoTitle">Demo</button>
                 <input type="file" id="elf-upload" accept=".elf,.out,.bin,.hex,.exe,.dll,application/octet-stream" hidden>
                 <button class="btn btn-primary" id="btn-upload" data-i18n="btnUpload" data-i18n-title="btnUploadTitle">Upload binary</button>
+                <input type="text" id="vt-hash-input" class="vt-hash-input" data-i18n-placeholder="vtHashPlaceholder" data-i18n-title="vtHashTitle" autocomplete="off" spellcheck="false">
+                <button type="button" class="btn btn-secondary" id="btn-vt-load" data-i18n="btnVtLoad" data-i18n-title="btnVtLoadTitle">VT</button>
                 <input type="file" id="sysroot-zip-upload" accept=".zip,application/zip" hidden>
                 <button class="btn btn-secondary" id="btn-sysroot-zip" data-i18n="btnSysrootZip" data-i18n-title="btnSysrootZipTitle">Sysroot (ZIP)</button>
                 <select id="quick-sysroot" class="quick-sysroot-select" data-i18n-title="quickSysrootTitle">
@@ -728,7 +754,10 @@
                 <div class="tab-content" id="vfs-tab">
                     <div class="vfs-header muted" data-i18n="vfsHeader">Virtual filesystem: libraries and files visible to the emulated program.</div>
                     <div class="vfs-add-section">
-                        <input type="text" id="vfs-path-input" class="vfs-path-input" data-i18n-placeholder="vfsPathPlaceholder">
+                        <div class="vfs-path-row">
+                            <input type="text" id="vfs-path-input" class="vfs-path-input" data-i18n-placeholder="vfsPathPlaceholder">
+                            <button type="button" class="btn btn-sm btn-secondary" id="btn-vfs-new-file" data-i18n="vfsNewFile" data-i18n-title="vfsNewFileTitle">New file</button>
+                        </div>
                         <div class="vfs-drop-zone" id="vfs-drop-zone" data-i18n-title="vfsDropTitle">
                             <span class="vfs-drop-text" data-i18n="vfsDropText">Drop file or click to add</span>
                             <input type="file" id="vfs-file-input" class="vfs-file-input" multiple>
